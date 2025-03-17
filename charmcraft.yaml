@@ -4,43 +4,41 @@
 # (Required)
 # The charm package name, no spaces
 # See https://juju.is/docs/sdk/naming#heading--naming-charms for guidance.
-name: velero-operator
-
+name: velero
 
 # (Required)
 # The charm type, either 'charm' or 'bundle'.
 type: charm
 
-
 # (Recommended)
-title: Charm Template
-
+title: Velero
 
 # (Required)
-summary: A very short one-line summary of the charm.
-
+summary: Charm for backing up and restoring Kubernetes cluster resources using Velero.
 
 # (Required)
 description: |
-  A single sentence that says what the charm is, concisely and memorably.
+  The Velero Charm enables automated backup, restore, and migration of Juju-managed Kubernetes clusters using Velero (https://velero.io).
+  This charm simplifies the deployment and configuration of Velero, integrating seamlessly with cloud storage providers for secure and scalable disaster recovery.
 
-  A paragraph of one to three short sentences, that describe what the charm does.
-
-  A third paragraph that explains what need the charm meets.
-
-  Finally, a paragraph that describes whom the charm is useful for.
+# (Recommended)
+links:
+  documentation: https://example.com/docs
+  issues:
+  - https://github.com/canonical/velero-operator/issues
+  source:
+  - https://github.com/canonical/velero-operator
+  website:
+  - https://github.com/canonical/velero-operator
+  - https://velero.io
 
 
 # (Required for 'charm' type)
 # A list of environments (OS version and architecture) where charms must be
 # built on and run on.
-bases:
-  - build-on:
-    - name: ubuntu
-      channel: "22.04"
-    run-on:
-    - name: ubuntu
-      channel: "22.04"
+platforms:
+  ubuntu@22.04:amd64:
+  ubuntu@22.04:arm64:
 
 
 # (Optional) Configuration options for the charm
@@ -50,36 +48,71 @@ bases:
 # General configuration documentation: https://juju.is/docs/sdk/config
 config:
   options:
-    # An example config option to customise the log level of the workload
-    log-level:
+    use-node-agent:
       description: |
-        Configures the log level of gunicorn.
-
-        Acceptable values are: "info", "debug", "warning", "error" and "critical"
-      default: "info"
+          Controls whether to deploy Velero’s optional node agent (file system backup daemonset) on each Kubernetes node
+      default: false
+      type: boolean
+    velero-image:
+      description: |
+        The Velero container image to deploy
+      default: "velero/velero:v1.15.2"
+      type: string
+    velero-aws-plugin-image:
+      description: |
+        The Velero AWS plugin container image to deploy
+      default: "velero/velero-plugin-for-aws:v1.10.0"
+      type: string
+    velero-azure-plugin-image:
+      description: |
+        The Velero Azure plugin container image to deploy
+      default: "velero/velero-plugin-for-microsoft-azure:v1.11.0"
       type: string
 
+# (Recommended) A list of parts that make up the charm.
+# More information on this section at https://juju.is/docs/sdk/charmcraft-yaml#parts
+# General configuration documentation: https://juju.is/docs/sdk/config
+parts:
+  charm:
+    plugin: charm
+    source: .
+  velero:
+    plugin: dump
+    source: 
+      - on amd64: https://github.com/vmware-tanzu/velero/releases/download/v1.15.2/velero-v1.15.2-linux-amd64.tar.gz
+      - on arm64: https://github.com/vmware-tanzu/velero/releases/download/v1.15.2/velero-v1.15.2-linux-arm64.tar.gz
+    source-type: tar
+    stage:
+      - velero
 
-# The containers and resources metadata apply to Kubernetes charms only.
-# See https://juju.is/docs/sdk/metadata-reference for a checklist and guidance.
-# Remove them if not required.
+# (Optional) Defines actions the charm can take.
+# More information on this section at https://juju.is/docs/sdk/charmcraft-yaml#actions
+# General configuration documentation: https://juju.is/docs/sdk/config
+actions:
+  run:
+    description: >
+      Run arbitrary Velero CLI commands.
+      Useful for managing Velero installation and creating backup/restores
+    params:
+      command:
+        type: string
+        description: the Velero subcommand and arguments to run
 
 
-# Your workload’s containers.
-containers:
-  httpbin:
-    resource: httpbin-image
+# (Optional) Defines relations the charm can establish.
+# More information on this section at https://juju.is/docs/sdk/charmcraft-yaml#peers-provides-and-requires
+# General configuration documentation: https://juju.is/docs/sdk/config
+requires:
+  s3:
+    interface: s3
+    limit: 1
+    optional: true
+  azure:
+    interface: azure_storage
+    limit: 1
+    optional: true
 
-
-# This field populates the Resources tab on Charmhub.
-resources:
-  # An OCI image resource for each container listed above.
-  # You may remove this if your charm will run without a workload sidecar container.
-  httpbin-image:
-    type: oci-image
-    description: OCI image for httpbin
-    # The upstream-source field is ignored by Juju. It is included here as a
-    # reference so the integration testing suite knows which image to deploy
-    # during testing. This field is also used by the 'canonical/charming-actions'
-    # Github action for automated releasing.
-    upstream-source: kennethreitz/httpbin
+provides:
+  metrics-endpoint:
+    interface: prometheus_scrape
+    limit: 1
