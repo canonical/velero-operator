@@ -1,29 +1,14 @@
-# This file configures Charmcraft.
-# See https://juju.is/docs/sdk/charmcraft-config for guidance.
-
-# (Required)
-# The charm package name, no spaces
-# See https://juju.is/docs/sdk/naming#heading--naming-charms for guidance.
-name: velero
-
-# (Required)
-# The charm type, either 'charm' or 'bundle'.
+name: velero-operator
 type: charm
+title: Velero Operator Charm
 
-# (Recommended)
-title: Velero
+summary: Server Charm for backing up and restoring Kubernetes cluster resources using Velero.
 
-# (Required)
-summary: Charm for backing up and restoring Kubernetes cluster resources using Velero.
-
-# (Required)
 description: |
   The Velero Charm enables automated backup, restore, and migration of Juju-managed Kubernetes clusters using Velero (https://velero.io).
   This charm simplifies the deployment and configuration of Velero, integrating seamlessly with cloud storage providers for secure and scalable disaster recovery.
 
-# (Recommended)
 links:
-  documentation: https://example.com/docs
   issues:
   - https://github.com/canonical/velero-operator/issues
   source:
@@ -32,20 +17,10 @@ links:
   - https://github.com/canonical/velero-operator
   - https://velero.io
 
-
-# (Required for 'charm' type)
-# A list of environments (OS version and architecture) where charms must be
-# built on and run on.
 platforms:
-  ubuntu@22.04:amd64:
-  ubuntu@22.04:arm64:
+  ubuntu@24.04:amd64:
+  ubuntu@24.04:arm64:
 
-
-# (Optional) Configuration options for the charm
-# This config section defines charm config options, and populates the Configure
-# tab on Charmhub.
-# More information on this section at https://juju.is/docs/sdk/charmcraft-yaml#heading--config
-# General configuration documentation: https://juju.is/docs/sdk/config
 config:
   options:
     use-node-agent:
@@ -69,9 +44,6 @@ config:
       default: "velero/velero-plugin-for-microsoft-azure:v1.11.0"
       type: string
 
-# (Recommended) A list of parts that make up the charm.
-# More information on this section at https://juju.is/docs/sdk/charmcraft-yaml#parts
-# General configuration documentation: https://juju.is/docs/sdk/config
 parts:
   charm:
     plugin: charm
@@ -85,9 +57,6 @@ parts:
     stage:
       - velero
 
-# (Optional) Defines actions the charm can take.
-# More information on this section at https://juju.is/docs/sdk/charmcraft-yaml#actions
-# General configuration documentation: https://juju.is/docs/sdk/config
 actions:
   run:
     description: >
@@ -98,10 +67,6 @@ actions:
         type: string
         description: the Velero subcommand and arguments to run
 
-
-# (Optional) Defines relations the charm can establish.
-# More information on this section at https://juju.is/docs/sdk/charmcraft-yaml#peers-provides-and-requires
-# General configuration documentation: https://juju.is/docs/sdk/config
 requires:
   s3:
     interface: s3
