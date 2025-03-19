@@ -1,98 +1,121 @@
-[tool.flake8]
-max-line-length = 99
-max-doc-length = 99
-max-complexity = 10
-exclude = [
-    ".git",
-    "__pycache__",
-    ".tox",
-    ".build",
-    "build",
-    "dist",
-    ".eggs",
-    "*.egg_info",
-    "venv",
-    ".venv",
-    "report",
-    "docs",
-    "lib",
-    "mod",
-    "hooks/charmhelpers",
-    "tests/charmhelpers",
+# poetry
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+ops = "^2.17.0"
+pydantic = "^2.10.4"
+
+# Testing tools configuration
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+log_cli_level = "INFO"
+
+# Linting tools configuration
+[tool.ruff]
+line-length = 99
+lint.select = ["E", "W", "F", "C", "N", "D", "I001"]
+lint.extend-ignore = [
+    "D203",
+    "D204",
+    "D213",
+    "D215",
+    "D400",
+    "D404",
+    "D406",
+    "D407",
+    "D408",
+    "D409",
+    "D413",
 ]
-select = ["E", "W", "F", "C", "N", "R", "D", "H"]
-# Ignore W503, E501 because using black creates errors with this
-# Ignore D107 Missing docstring in __init__
-# Ignore D415 Docstring first line punctuation (doesn't make sense for properties)
-# Ignore N818 Exceptions end with "Error" (not all exceptions are errors)
-# D100, D101, D102, D103: Ignore missing docstrings in tests
-ignore = ["C901", "W503", "E501", "D107", "D415", "N818", "D100", "D101", "D102", "D103", "W504"]
-per-file-ignores = ["tests/*:D100,D101,D102,D103,D104"]
-# Check for properly formatted copyright header in each file
-copyright-check = "True"
-copyright-author = "Canonical Ltd."
-copyright-regexp = "Copyright\\s\\d{4}([-,]\\d{4})*\\s+%(author)s"
+lint.ignore = ["D107"]
+extend-exclude = ["__pycache__", "*.egg_info"]
+lint.per-file-ignores = {"tests/*" = ["D100","D101","D102","D103","D104"]}
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.codespell]
+skip = "build,lib,venv,icon.svg,.tox,.git,.mypy_cache,.ruff_cache,.coverage"
+ignore-words-list = "NotIn"
+
+# LSPs and formatters
+[tool.pyright]
+include = ["src"]
 
 [tool.black]
 line-length = 99
-exclude = '''
-/(
-    | .eggs
-    | .git
-    | .tox
-    | .venv
-    | .build
-    | build
-    | lib
-    | report
-    | docs
-    | mod
-    | hooks/charmhelpers
-    | tests/charmhelpers
-)/
-'''
+target-version = ["py312"]
 
+# Ensures that isort will format code that aligns with black. Used to configure
+# potential editors that will have isort installed, for automatically re-ordering
+# imports on save.
 [tool.isort]
 profile = "black"
 line_length = 99
-skip_glob = [".eggs", ".git", ".tox", ".venv", ".build", "build", "lib", "report", "mod", "hooks/charmhelpers", "tests/charmhelpers"]
 
-[tool.pylint]
-max-line-length = 99
-disable = ["E1102"]
-ignore = ['.eggs', '.git', '.tox', '.venv', '.build', 'lib', 'report', 'tests', 'docs', "mod", "hooks/charmhelpers", "tests/charmhelpers"]
+# update-requirements
+[tool.poetry.group.update-requirements]
+optional = true
 
-[tool.mypy]
-warn_unused_ignores = true
-warn_unused_configs = true
-warn_unreachable = true
-disallow_untyped_defs = true
-ignore_missing_imports = true
-no_namespace_packages = true
-exclude = ['.eggs', '.git', '.tox', '.venv', '.build', 'lib', 'report', 'tests', 'docs', "mod", "hooks/charmhelpers", "tests/charmhelpers"]
+[tool.poetry.group.update-requirements.dependencies]
+poetry-plugin-export = "^1.8.0"
 
-[tool.codespell]
-skip = ".eggs,.tox,.git,.venv,venv,build,.build,lib,report,docs,poetry.lock,htmlcov,mod,hooks/charmhelpers,tests/charmhelpers"
-quiet-level = 3
-check-filenames = true
-ignore-words-list = "assertIn"
+# format
+[tool.poetry.group.fmt]
+optional = true
 
-## Ignore unsupported imports
-[[tool.mypy.overrides]]
-module = ["charmhelpers.*", "setuptools"]
-ignore_missing_imports = true
+[tool.poetry.group.fmt.dependencies]
+ruff = "^0.8.0"
+black = "^24.10.0"
 
-[tool.coverage.run]
-relative_files = true
-source = ["."]
-omit = ["tests/**", "docs/**", "lib/**", "snap/**", "build/**", "setup.py", "mod/**", "hooks/charmhelpers/**", "tests/charmhelpers/**"]
+# lint
+[tool.poetry.group.lint]
+optional = true
 
-[tool.coverage.report]
-fail_under = 99
-show_missing = true
+[tool.poetry.group.lint.dependencies]
+ruff = "^0.8.0"
+codespell = "^2.3.0"
+pyright = "^1.1.386"
+black = "^24.10.0"
+pytest = "^8.3.3"
+pytest-operator = ">0.30"
 
-[tool.coverage.html]
-directory = "tests/report/html"
+# unit library tests
+[tool.poetry.group.unit-library]
+optional = true
 
-[tool.coverage.xml]
-output = "tests/report/coverage.xml"
+[tool.poetry.group.unit-library.dependencies]
+coverage = { extras = ["toml"], version = ">7.0" }
+pytest = "^8.3.3"
+pytest-operator = ">0.30"
+
+# unit tests
+[tool.poetry.group.unit]
+optional = true
+
+[tool.poetry.group.unit.dependencies]
+coverage = { extras = ["toml"], version = ">7.0" }
+pytest = "^8.3.3"
+pytest-operator = ">0.30"
+
+# integration tests
+[tool.poetry.group.integration]
+optional = true
+
+[tool.poetry.group.integration.dependencies]
+juju = "^3.6"
+tenacity = "^9.0.0"
+pytest = "^8.3.3"
+pytest-operator = ">0.30"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
