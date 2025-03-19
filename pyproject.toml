@@ -6,6 +6,7 @@ package-mode = false
 python = "^3.12"
 ops = "^2.17.0"
 pydantic = "^2.10.4"
+lightkube = "^0.17.1"
 
 # Testing tools configuration
 [tool.coverage.run]
