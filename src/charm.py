@@ -10,7 +10,8 @@ import ops
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from lightkube import Client
 
-from config import PROMETHEUS_METRICS_PORT, VELERO_PATH, StorageProviders
+from config import PROMETHEUS_METRICS_PORT, VELERO_PATH
+from utils import check_velero_deployment, check_velero_nodeagent
 from velero import Velero, VeleroError
 
 logger = logging.getLogger(__name__)
@@ -19,9 +20,14 @@ logger = logging.getLogger(__name__)
 class VeleroOperatorCharm(ops.CharmBase):
     """Charm the service."""
 
+    _stored = ops.StoredState()
+
     def __init__(self, framework: ops.Framework):
         super().__init__(framework)
-        self._field_manager = "lightkube"
+        self._field_manager = "velero-operator"
+        self._stored.set_default(
+            storage_provider_attached=None,
+        )
 
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.install, self._on_install)
@@ -53,12 +59,6 @@ class VeleroOperatorCharm(ops.CharmBase):
     # PROPERTIES
 
     @property
-    def is_storage_provider_related(self) -> bool:
-        """Return True if the charm is related to any storage provider."""
-        providers = [p.value for p in StorageProviders]
-        return any(len(self.model.relations.get(provider, [])) > 0 for provider in providers)
-    
-    @property
     def _lightkube_client(self):
         """Returns a lightkube client configured for this charm."""
         return Client(namespace=self.model.name, field_manager=self._field_manager)
@@ -73,16 +73,13 @@ class VeleroOperatorCharm(ops.CharmBase):
         """Handle the install event."""
         self._log_and_set_status(ops.MaintenanceStatus("Deploying Velero server on the cluster"))
 
-        velero_image = str(self.config["velero-image"])
-        use_node_agent = bool(self.config["use-node-agent"])
-
-        velero = Velero(VELERO_PATH, self.model.name, velero_image)
+        velero = Velero(VELERO_PATH, self.model.name, str(self.config["velero-image"]))
 
         try:
-            velero.install(use_node_agent)
+            velero.install(True if self.config["use-node-agent"] else False)
         except VeleroError as ve:
             raise RuntimeError("Failed to install Velero on the cluster") from ve
-        
+
         self._on_update_status(event)
 
     def _on_remove(self, event: ops.RemoveEvent) -> None:
@@ -91,7 +88,26 @@ class VeleroOperatorCharm(ops.CharmBase):
 
     def _on_update_status(self, event: ops.EventBase) -> None:
         """Handle the update-status event."""
-        pass
+        result = check_velero_deployment(self._lightkube_client)
+        if not result.ok:
+            self._log_and_set_status(
+                ops.BlockedStatus(f"Deployment is not ready: {result.reason}")
+            )
+            return
+
+        if self.config["use-node-agent"]:
+            result = check_velero_nodeagent(self._lightkube_client)
+            if not result.ok:
+                self._log_and_set_status(
+                    ops.BlockedStatus(f"NodeAgent is not ready: {result.reason}")
+                )
+                return
+
+        if not self._stored.storage_provider_attached:
+            self._log_and_set_status(ops.BlockedStatus("Missing relation: [s3|azure]"))
+            return
+
+        self._log_and_set_status(ops.ActiveStatus("Unit is Ready"))
 
     def _on_upgrade_charm(self, event: ops.UpgradeCharmEvent) -> None:
         """Handle the upgrade-charm event."""

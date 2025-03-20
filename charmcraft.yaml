@@ -46,8 +46,16 @@ config:
 
 parts:
   charm:
-    plugin: charm
     source: .
+    build-snaps:
+      - rustup
+    build-packages:
+      - libffi-dev
+      - libssl-dev
+      - pkg-config
+    override-build: |
+      rustup default stable
+      craftctl default
   velero:
     plugin: dump
     source: 
