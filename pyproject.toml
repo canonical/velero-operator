@@ -1,3 +1,15 @@
+# Copyright 2025 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+# poetry
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+ops = "^2.17.0"
+lightkube = "^0.17.1"
+
 # Testing tools configuration
 [tool.coverage.run]
 branch = true
@@ -14,8 +26,6 @@ log_cli_level = "INFO"
 line-length = 99
 lint.select = ["E", "W", "F", "C", "N", "D", "I001"]
 lint.extend-ignore = [
-    "D105",
-    "D107",
     "D203",
     "D204",
     "D213",
@@ -28,6 +38,7 @@ lint.extend-ignore = [
     "D409",
     "D413",
 ]
+lint.ignore = ["D107"]
 extend-exclude = ["__pycache__", "*.egg_info"]
 lint.per-file-ignores = {"tests/*" = ["D100","D101","D102","D103","D104"]}
 
@@ -36,6 +47,69 @@ max-complexity = 10
 
 [tool.codespell]
 skip = "build,lib,venv,icon.svg,.tox,.git,.mypy_cache,.ruff_cache,.coverage"
+ignore-words-list = "NotIn"
 
+# LSPs and formatters
 [tool.pyright]
-include = ["src/**.py"]
+include = ["src"]
+
+[tool.black]
+line-length = 99
+target-version = ["py312"]
+
+# Ensures that isort will format code that aligns with black. Used to configure
+# potential editors that will have isort installed, for automatically re-ordering
+# imports on save.
+[tool.isort]
+profile = "black"
+line_length = 99
+
+# update-requirements
+[tool.poetry.group.update-requirements]
+optional = true
+
+[tool.poetry.group.update-requirements.dependencies]
+poetry-plugin-export = "^1.8.0"
+
+# format
+[tool.poetry.group.fmt]
+optional = true
+
+[tool.poetry.group.fmt.dependencies]
+ruff = "^0.8.0"
+black = "^24.10.0"
+
+# lint
+[tool.poetry.group.lint]
+optional = true
+
+[tool.poetry.group.lint.dependencies]
+ruff = "^0.8.0"
+codespell = "^2.3.0"
+pyright = "^1.1.386"
+black = "^24.10.0"
+pytest = "^8.3.3"
+pytest-operator = ">0.30"
+
+# unit tests
+[tool.poetry.group.unit]
+optional = true
+
+[tool.poetry.group.unit.dependencies]
+coverage = { extras = ["toml"], version = ">7.0" }
+pytest = "^8.3.3"
+pytest-operator = ">0.30"
+
+# integration tests
+[tool.poetry.group.integration]
+optional = true
+
+[tool.poetry.group.integration.dependencies]
+juju = "^3.6"
+tenacity = "^9.0.0"
+pytest = "^8.3.3"
+pytest-operator = ">0.30"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
