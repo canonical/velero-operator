@@ -26,7 +26,9 @@ class CheckResult:
     reason: Optional[Exception] = None
 
 
-def check_velero_deployment(kube_client: Client, name: str = "velero") -> CheckResult:
+def check_velero_deployment(
+    kube_client: Client, namespace: str, name: str = "velero"
+) -> CheckResult:
     """Check the readiness of the Velero deployment in the Kubernetes cluster.
 
     This function attempts to verify the availability status of the Velero deployment
@@ -35,7 +37,8 @@ def check_velero_deployment(kube_client: Client, name: str = "velero") -> CheckR
     is not ready.
 
     Args:
-        kube_client (Client): The Kubernetes client used to interact with the cluster.
+        kube_client (Client): The lightkube client used to interact with the cluster.
+        namespace (str): The namespace where the deployment is deployed.
         name (str, optional): The name of the Velero deployment. Defaults to "velero".
 
     Returns:
@@ -50,7 +53,7 @@ def check_velero_deployment(kube_client: Client, name: str = "velero") -> CheckR
 
     while attempts < K8S_CHECK_ATTEMPTS:
         try:
-            deployment = kube_client.get(Deployment, name=name)
+            deployment = kube_client.get(Deployment, name=name, namespace=namespace)
             conditions = (
                 deployment.status.conditions
                 if deployment.status and deployment.status.conditions
@@ -65,7 +68,7 @@ def check_velero_deployment(kube_client: Client, name: str = "velero") -> CheckR
                     logger.info(
                         "The Velero Deployment is ready (observation: %d/%d)",
                         attempts,
-                        K8S_CHECK_ATTEMPTS,
+                        K8S_CHECK_OBSERVATIONS,
                     )
                     if observations > K8S_CHECK_OBSERVATIONS:
                         result.ok = True
@@ -97,7 +100,9 @@ def check_velero_deployment(kube_client: Client, name: str = "velero") -> CheckR
     return result
 
 
-def check_velero_nodeagent(kube_client: Client, name: str = "velero") -> CheckResult:
+def check_velero_nodeagent(
+    kube_client: Client, namespace: str, name: str = "velero"
+) -> CheckResult:
     """Check the readiness of the Velero DaemonSet in a Kubernetes cluster.
 
     This function attempts to verify if the Velero DaemonSet is fully available
@@ -105,7 +110,8 @@ def check_velero_nodeagent(kube_client: Client, name: str = "velero") -> CheckRe
     It performs multiple attempts and observations to ensure the DaemonSet's readiness.
 
     Args:
-        kube_client (Client): The Kubernetes client used to interact with the cluster.
+        kube_client (Client): The lightkube client used to interact with the cluster.
+        namespace (str): The namespace where the DaemonSet is deployed.
         name (str, optional): The name of the Velero DaemonSet. Defaults to "velero".
 
     Returns:
@@ -119,7 +125,7 @@ def check_velero_nodeagent(kube_client: Client, name: str = "velero") -> CheckRe
 
     while attempts < K8S_CHECK_ATTEMPTS:
         try:
-            daemonset = kube_client.get(DaemonSet, name=name)
+            daemonset = kube_client.get(DaemonSet, name=name, namespace=namespace)
             status = daemonset.status
 
             if status:

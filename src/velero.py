@@ -6,6 +6,14 @@
 import logging
 import subprocess
 
+from lightkube import Client
+from lightkube.core.exceptions import ApiError
+from lightkube.generic_resource import create_namespaced_resource
+from lightkube.resources.apps_v1 import DaemonSet, Deployment
+from lightkube.resources.core_v1 import Secret, ServiceAccount
+from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
+from lightkube.types import CascadeType
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,12 +51,16 @@ class Velero:
         ]
 
     def install(self, use_node_agent: bool) -> None:
-        """Install Velero."""
+        """Install Velero in the Kubernetes cluster.
+
+        Args:
+            use_node_agent: Whether to use the Velero node agent (DaemonSet).
+        """
         install_msg = (
             "Installing the Velero with the following settings:\n"
-            f"Image: {self._velero_image}\n"
-            f"Namespace: {self._namespace}\n"
-            f"Node-agent enabled: {use_node_agent}"
+            f"  Image: '{self._velero_image}'\n"
+            f"  Namespace: '{self._namespace}'\n"
+            f"  Node-agent enabled: '{use_node_agent}'"
         )
         try:
             logger.info(install_msg)
@@ -68,6 +80,78 @@ class Velero:
 
             raise VeleroError(error_msg) from cpe
 
-    def remove(self) -> None:
-        """Remove Velero."""
-        pass
+    def remove(self, kube_client: Client) -> None:
+        """Remove Velero resourses from the cluster.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+        """
+        remove_msg = (
+            f"Unistalling the following Velero resources from '{self._namespace}' namespace:\n"
+            "   Deployment: 'velero'\n"
+            "   DaemonSet: 'node-agent'\n"
+            "   Secret: 'velero-cloud-credentials'\n"
+            "   ServiceAccount: 'velero'\n"
+            "   ClusterRoleBinding: 'velero'\n"
+            "   BackupStorageLocation: 'default'\n"
+            "   VolumeSnapshotLocation: 'default'"
+        )
+        logger.info(remove_msg)
+
+        # Delete the Deployment
+        try:
+            kube_client.delete(
+                Deployment,
+                name="velero",
+                cascade=CascadeType.FOREGROUND,
+                namespace=self._namespace,
+            )
+        except ApiError as err:
+            logger.warning("Failed to delete the Velero Deployment: %s", err)
+
+        # Delete the DaemonSet
+        try:
+            kube_client.delete(
+                DaemonSet,
+                name="node-agent",
+                cascade=CascadeType.FOREGROUND,
+                namespace=self._namespace,
+            )
+        except ApiError as err:
+            logger.warning("Failed to delete the Velero NogeAgent: %s", err)
+
+        # Delete the Secret
+        try:
+            kube_client.delete(Secret, name="velero-cloud-credentials", namespace=self._namespace)
+        except ApiError as err:
+            logger.warning("Failed to delete the Velero Secret: %s", err)
+
+        # Delete the ServiceAccount
+        try:
+            kube_client.delete(ServiceAccount, name="velero", namespace=self._namespace)
+        except ApiError as err:
+            logger.warning("Failed to delete the Velero ServiceAccount: %s", err)
+
+        # Delete the BackupStorageLocation
+        try:
+            backup_storage_location = create_namespaced_resource(
+                "velero.io", "v1", "BackupStorageLocation", "backupstoragelocations"
+            )
+            kube_client.delete(backup_storage_location, name="default", namespace=self._namespace)
+        except ApiError as err:
+            logger.warning("Failed to delete the Velero BackupStorageLocation: %s", err)
+
+        # Delete the VolumeSnapshotLocation
+        try:
+            volume_storage_location = create_namespaced_resource(
+                "velero.io", "v1", "VolumeSnapshotLocation", "volumesnapshotlocations"
+            )
+            kube_client.delete(volume_storage_location, name="default", namespace=self._namespace)
+        except ApiError as err:
+            logger.warning("Failed to delete the Velero VolumeSnapshotLocation: %s", err)
+
+        # Delete the ClusterRoleBinding
+        try:
+            kube_client.delete(ClusterRoleBinding, name="velero")
+        except ApiError as err:
+            logger.warning("Failed to delete the Velero ClusterRoleBinding: %s", err)

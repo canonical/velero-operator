@@ -25,6 +25,7 @@ class VeleroOperatorCharm(ops.CharmBase):
     def __init__(self, framework: ops.Framework):
         super().__init__(framework)
         self._field_manager = "velero-operator"
+        self._velero = Velero(VELERO_PATH, self.model.name, str(self.config["velero-image"]))
         self._stored.set_default(
             storage_provider_attached=None,
         )
@@ -73,10 +74,8 @@ class VeleroOperatorCharm(ops.CharmBase):
         """Handle the install event."""
         self._log_and_set_status(ops.MaintenanceStatus("Deploying Velero server on the cluster"))
 
-        velero = Velero(VELERO_PATH, self.model.name, str(self.config["velero-image"]))
-
         try:
-            velero.install(True if self.config["use-node-agent"] else False)
+            self._velero.install(True if self.config["use-node-agent"] else False)
         except VeleroError as ve:
             raise RuntimeError("Failed to install Velero on the cluster") from ve
 
@@ -84,11 +83,13 @@ class VeleroOperatorCharm(ops.CharmBase):
 
     def _on_remove(self, event: ops.RemoveEvent) -> None:
         """Handle the remove event."""
-        pass
+        self._log_and_set_status(ops.MaintenanceStatus("Removing Velero server from the cluster"))
+
+        self._velero.remove(self._lightkube_client)
 
     def _on_update_status(self, event: ops.EventBase) -> None:
         """Handle the update-status event."""
-        result = check_velero_deployment(self._lightkube_client)
+        result = check_velero_deployment(self._lightkube_client, self.model.name)
         if not result.ok:
             self._log_and_set_status(
                 ops.BlockedStatus(f"Deployment is not ready: {result.reason}")
@@ -96,7 +97,7 @@ class VeleroOperatorCharm(ops.CharmBase):
             return
 
         if self.config["use-node-agent"]:
-            result = check_velero_nodeagent(self._lightkube_client)
+            result = check_velero_nodeagent(self._lightkube_client, self.model.name)
             if not result.ok:
                 self._log_and_set_status(
                     ops.BlockedStatus(f"NodeAgent is not ready: {result.reason}")
