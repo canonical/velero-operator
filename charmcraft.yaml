@@ -65,28 +65,3 @@ parts:
     source-type: tar
     stage:
       - velero
-
-actions:
-  run:
-    description: >
-      Run arbitrary Velero CLI commands.
-      Useful for managing Velero installation and creating backup/restores
-    params:
-      command:
-        type: string
-        description: the Velero subcommand and arguments to run
-
-requires:
-  s3:
-    interface: s3
-    limit: 1
-    optional: true
-  azure:
-    interface: azure_storage
-    limit: 1
-    optional: true
-
-provides:
-  metrics-endpoint:
-    interface: prometheus_scrape
-    limit: 1
