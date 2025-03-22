@@ -1,26 +1,11 @@
-<!--
-Avoid using this README file for information that is maintained or published elsewhere, e.g.:
+# Velero Operator
 
-* metadata.yaml > published on Charmhub
-* documentation > published on (or linked to from) Charmhub
-* detailed contribution guide > documentation or CONTRIBUTING.md
+## Overview
 
-Use links instead.
--->
+The Velero Charm enables automated backup, restore, and migration of Juju-managed Kubernetes clusters using [Velero](https://velero.io/). This charm simplifies the deployment and configuration of Velero, integrating seamlessly with cloud storage providers for secure and scalable disaster recovery.
 
-# velero-operator
+## Other Links
 
-Charmhub package name: operator-template
-More information: https://charmhub.io/velero-operator
-
-Describe your charm in one or two sentences.
-
-## Other resources
-
-<!-- If your charm is documented somewhere else other than Charmhub, provide a link separately. -->
-
-- [Read more](https://example.com)
-
-- [Contributing](CONTRIBUTING.md) <!-- or link to other contribution documentation -->
+- [Contributing](CONTRIBUTING.md)
 
 - See the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms.
