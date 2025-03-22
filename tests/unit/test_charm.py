@@ -11,10 +11,11 @@ from charm import VeleroOperatorCharm
 
 @pytest.fixture
 def harness():
-     harness = ops.testing.Harness(VeleroOperatorCharm)
-     harness.begin()
-     yield harness
-     harness.cleanup()
+    harness = ops.testing.Harness(VeleroOperatorCharm)
+    harness.begin()
+    yield harness
+    harness.cleanup()
+
 
 def test_dummy(harness: ops.testing.Harness[VeleroOperatorCharm]):
     assert True

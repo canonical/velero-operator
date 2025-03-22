@@ -28,9 +28,9 @@ class VeleroOperatorCharm(ops.CharmBase):
 
         self.framework.observe(self.on.install, self._on_install)
 
-
     def _on_install(self, _: ops.InstallEvent):
-         self.unit.status = ops.ActiveStatus("hello friend")
+        self.unit.status = ops.ActiveStatus("hello friend")
+
 
 if __name__ == "__main__":  # pragma: nocover
     ops.main(VeleroOperatorCharm)
