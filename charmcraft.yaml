@@ -23,6 +23,9 @@ links:
 platforms:
   ubuntu@24.04:amd64:
 
+assumes:
+  - k8s-api
+
 config:
   options:
     use-node-agent:
@@ -60,7 +63,7 @@ parts:
       craftctl default
   velero:
     plugin: dump
-    source: 
+    source:
       - on amd64: https://github.com/vmware-tanzu/velero/releases/download/v1.15.2/velero-v1.15.2-linux-amd64.tar.gz
     source-type: tar
     stage:
