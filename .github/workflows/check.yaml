@@ -74,5 +74,5 @@ jobs:
       if: failure()
 
     - name: Get operator logs
-      run: kubectl logs --tail 100 -n testing -loperator.juju.is/name=velero-operator
+      run: juju debug-log --replay --include velero-operator/0
       if: failure()
