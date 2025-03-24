@@ -174,8 +174,8 @@ class Velero:
         return result
 
     @staticmethod
-    def check_velero_nodeagent(
-        kube_client: Client, namespace: str, name: str = "velero"
+    def check_velero_node_agent(
+        kube_client: Client, namespace: str, name: str = "node-agent"
     ) -> CheckResult:
         """Check the readiness of the Velero DaemonSet in a Kubernetes cluster.
 

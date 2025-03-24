@@ -35,4 +35,5 @@ async def test_build_and_deploy(ops_test: OpsTest):
         ops_test.model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=60 * 20),
     )
 
-    assert ops_test.model.applications[APP_NAME].status_message == "Missing relation: [s3|azure]"
+    for unit in ops_test.model.applications[APP_NAME].units:
+        assert unit.workload_status_message == "Missing relation: [s3|azure]"

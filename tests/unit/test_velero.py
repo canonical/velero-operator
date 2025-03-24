@@ -128,42 +128,42 @@ def test_check_velero_deployment_api_error(mock_lightkube_client):
     assert isinstance(result.reason, ApiError)
 
 
-def test_check_velero_nodeagent_success(mock_lightkube_client):
+def test_check_velero_node_agent_success(mock_lightkube_client):
     mock_daemonset = MagicMock()
     mock_daemonset.status.numberAvailable = 3
     mock_daemonset.status.desiredNumberScheduled = 3
     mock_lightkube_client.get.return_value = mock_daemonset
 
-    result = Velero.check_velero_nodeagent(mock_lightkube_client, "velero")
+    result = Velero.check_velero_node_agent(mock_lightkube_client, "velero")
     assert result.ok is True
 
 
-def test_check_velero_nodeagent_not_ready(mock_lightkube_client):
+def test_check_velero_node_agent_not_ready(mock_lightkube_client):
     mock_daemonset = MagicMock()
     mock_daemonset.status.numberAvailable = 1
     mock_daemonset.status.desiredNumberScheduled = 3
     mock_lightkube_client.get.return_value = mock_daemonset
 
-    result = Velero.check_velero_nodeagent(mock_lightkube_client, "velero")
+    result = Velero.check_velero_node_agent(mock_lightkube_client, "velero")
     assert result.ok is False
     assert isinstance(result.reason, StatusError)
 
 
-def test_check_velero_nodeagent_no_status(mock_lightkube_client):
+def test_check_velero_node_agent_no_status(mock_lightkube_client):
     mock_daemonset = MagicMock()
     mock_daemonset.status = None
     mock_lightkube_client.get.return_value = mock_daemonset
 
-    result = Velero.check_velero_nodeagent(mock_lightkube_client, "velero")
+    result = Velero.check_velero_node_agent(mock_lightkube_client, "velero")
     assert result.ok is False
     assert isinstance(result.reason, StatusError)
 
 
-def test_check_velero_nodeagent_api_error(mock_lightkube_client):
+def test_check_velero_node_agent_api_error(mock_lightkube_client):
     mock_lightkube_client.get.side_effect = ApiError(
         request=MagicMock(), response=MagicMock(status_code=500)
     )
 
-    result = Velero.check_velero_nodeagent(mock_lightkube_client, "velero")
+    result = Velero.check_velero_node_agent(mock_lightkube_client, "velero")
     assert result.ok is False
     assert isinstance(result.reason, ApiError)
