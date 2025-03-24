@@ -19,7 +19,6 @@ links:
 
 platforms:
   ubuntu@24.04:amd64:
-  ubuntu@24.04:arm64:
 
 config:
   options:
@@ -60,7 +59,6 @@ parts:
     plugin: dump
     source: 
       - on amd64: https://github.com/vmware-tanzu/velero/releases/download/v1.15.2/velero-v1.15.2-linux-amd64.tar.gz
-      - on arm64: https://github.com/vmware-tanzu/velero/releases/download/v1.15.2/velero-v1.15.2-linux-arm64.tar.gz
     source-type: tar
     stage:
       - velero

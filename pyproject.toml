@@ -1,3 +1,6 @@
+# Copyright 2025 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 # poetry
 [tool.poetry]
 package-mode = false
@@ -5,8 +8,8 @@ package-mode = false
 [tool.poetry.dependencies]
 python = "^3.12"
 ops = "^2.17.0"
-pydantic = "^2.10.4"
 lightkube = "^0.17.1"
+cosl = "^0.0.57"
 
 # Testing tools configuration
 [tool.coverage.run]
@@ -89,15 +92,6 @@ black = "^24.10.0"
 pytest = "^8.3.3"
 pytest-operator = ">0.30"
 
-# unit library tests
-[tool.poetry.group.unit-library]
-optional = true
-
-[tool.poetry.group.unit-library.dependencies]
-coverage = { extras = ["toml"], version = ">7.0" }
-pytest = "^8.3.3"
-pytest-operator = ">0.30"
-
 # unit tests
 [tool.poetry.group.unit]
 optional = true
@@ -116,7 +110,10 @@ juju = "^3.6"
 tenacity = "^9.0.0"
 pytest = "^8.3.3"
 pytest-operator = ">0.30"
+ops = { version = "^2.17.0", extras = ["testing"] }
+
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+ops = { version = "^2.17.0", extras = ["testing"] }

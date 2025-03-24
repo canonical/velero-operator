@@ -6,8 +6,6 @@ The Velero Charm enables automated backup, restore, and migration of Juju-manage
 
 ## Other Links
 
-<!-- If your charm is documented somewhere else other than Charmhub, provide a link separately. -->
-
-- [Contributing](CONTRIBUTING.md) <!-- or link to other contribution documentation -->
+- [Contributing](CONTRIBUTING.md)
 
 - See the [Juju SDK documentation](https://juju.is/docs/sdk) for more information about developing and improving charms.
