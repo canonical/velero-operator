@@ -17,6 +17,8 @@ from config import (
     K8S_CHECK_ATTEMPTS,
     K8S_CHECK_DELAY,
     K8S_CHECK_OBSERVATIONS,
+    VELERO_DEPLOYMENT_NAME,
+    VELERO_NODE_AGENT_NAME,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,7 +101,7 @@ class Velero:
 
     @staticmethod
     def check_velero_deployment(
-        kube_client: Client, namespace: str, name: str = "velero"
+        kube_client: Client, namespace: str, name: str = VELERO_DEPLOYMENT_NAME
     ) -> CheckResult:
         """Check the readiness of the Velero deployment in the Kubernetes cluster.
 
@@ -175,7 +177,7 @@ class Velero:
 
     @staticmethod
     def check_velero_node_agent(
-        kube_client: Client, namespace: str, name: str = "node-agent"
+        kube_client: Client, namespace: str, name: str = VELERO_NODE_AGENT_NAME
     ) -> CheckResult:
         """Check the readiness of the Velero DaemonSet in a Kubernetes cluster.
 

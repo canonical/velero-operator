@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from juju.model import Model
 from pytest_operator.plugin import OpsTest
 
 from config import USE_NODE_AGENT_CONFIG_KEY
@@ -16,6 +17,21 @@ logger = logging.getLogger(__name__)
 
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
+
+
+def get_model(ops_test: OpsTest) -> Model:
+    """Return the Juju model of the current test.
+
+    Returns:
+        A juju.model.Model instance of the current model.
+
+    Raises:
+        AssertionError if the test doesn't have a Juju model.
+    """
+    model = ops_test.model
+    if model is None:
+        raise AssertionError("ops_test has a None model.")
+    return model
 
 
 @pytest.mark.abort_on_fail
@@ -28,12 +44,13 @@ async def test_build_and_deploy(ops_test: OpsTest):
     charm = await ops_test.build_charm(".")
 
     # Deploy the charm and wait for blocked/idle status
+    model = get_model(ops_test)
     await asyncio.gather(
-        ops_test.model.deploy(
+        model.deploy(
             charm, application_name=APP_NAME, trust=True, config={USE_NODE_AGENT_CONFIG_KEY: True}
         ),
-        ops_test.model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=60 * 20),
+        model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=60 * 20),
     )
 
-    for unit in ops_test.model.applications[APP_NAME].units:
+    for unit in model.applications[APP_NAME].units:
         assert unit.workload_status_message == "Missing relation: [s3|azure]"
