@@ -1,20 +1,39 @@
-# Copyright 2022 Canonical Ltd.
+# Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 """Velero related code."""
 
 import logging
 import subprocess
+import time
+from dataclasses import dataclass
+from typing import Optional
 
 from lightkube import Client
 from lightkube.core.exceptions import ApiError
-from lightkube.generic_resource import create_namespaced_resource
+from lightkube.core.resource import GlobalResource, NamespacedResource
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
-from lightkube.resources.core_v1 import Secret, ServiceAccount
-from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
-from lightkube.types import CascadeType
+
+from config import (
+    K8S_CHECK_ATTEMPTS,
+    K8S_CHECK_DELAY,
+    K8S_CHECK_OBSERVATIONS,
+    VELERO_SERVER_RESOURCES,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class StatusError(Exception):
+    """Base class for Status exceptions."""
+
+
+@dataclass
+class CheckResult:
+    """Represents the outcome of the check call."""
+
+    ok: bool = False
+    reason: Optional[Exception] = None
 
 
 class VeleroError(Exception):
@@ -80,78 +99,181 @@ class Velero:
 
             raise VeleroError(error_msg) from cpe
 
+    @staticmethod
+    def check_velero_deployment(
+        kube_client: Client, namespace: str, name: str = "velero"
+    ) -> CheckResult:
+        """Check the readiness of the Velero deployment in the Kubernetes cluster.
+
+        This function attempts to verify the availability status of the Velero deployment
+        by querying the Kubernetes API server using the provided kube_client. It performs
+        multiple attempts to check the deployment status and logs errors if the deployment
+        is not ready.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            namespace (str): The namespace where the deployment is deployed.
+            name (str, optional): The name of the Velero deployment. Defaults to "velero".
+
+        Returns:
+            CheckResult: An object containing the result of the check, including any errors
+            encountered during the process.
+        """
+        result = CheckResult()
+        attempts = 0
+        observations = 0
+
+        logger.info("Checking the Velero Deployment readiness")
+
+        while attempts < K8S_CHECK_ATTEMPTS:
+            try:
+                deployment = kube_client.get(Deployment, name=name, namespace=namespace)
+                conditions = (
+                    deployment.status.conditions
+                    if deployment.status and deployment.status.conditions
+                    else []
+                )
+
+                availability = next(
+                    (cond for cond in conditions if cond.type == "Available"), None
+                )
+
+                if availability:
+                    if availability.status == "True":
+                        observations += 1
+                        logger.info(
+                            "The Velero Deployment is ready (observation: %d/%d)",
+                            attempts,
+                            K8S_CHECK_OBSERVATIONS,
+                        )
+                        if observations > K8S_CHECK_OBSERVATIONS:
+                            result.ok = True
+                            return result
+                    else:
+                        result.reason = StatusError(availability.message)
+                        logger.warning(
+                            "The Velero Deployment is not ready: %s (attempt: %d/%d)",
+                            result.reason,
+                            attempts,
+                            K8S_CHECK_ATTEMPTS,
+                        )
+                else:
+                    result.reason = StatusError("Availability status is not present")
+                    logger.warning(
+                        "The Velero Deployment is not ready: %s (attempt: %d/%d)",
+                        result.reason,
+                        attempts,
+                        K8S_CHECK_ATTEMPTS,
+                    )
+            except ApiError as err:
+                result.reason = err
+                logger.error("Failed to confirm the Velero Deployment readiness: %s", err)
+                return result
+
+            attempts += 1
+            time.sleep(K8S_CHECK_DELAY)
+
+        return result
+
+    @staticmethod
+    def check_velero_nodeagent(
+        kube_client: Client, namespace: str, name: str = "velero"
+    ) -> CheckResult:
+        """Check the readiness of the Velero DaemonSet in a Kubernetes cluster.
+
+        This function attempts to verify if the Velero DaemonSet is fully available
+        by checking if the number of available pods matches the desired number of scheduled pods.
+        It performs multiple attempts and observations to ensure the DaemonSet's readiness.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            namespace (str): The namespace where the DaemonSet is deployed.
+            name (str, optional): The name of the Velero DaemonSet. Defaults to "velero".
+
+        Returns:
+            CheckResult: An object containing the result of the readiness check.
+        """
+        result = CheckResult()
+        attempts = 0
+        observations = 0
+
+        logger.info("Checking the Velero NodeAgent readiness")
+
+        while attempts < K8S_CHECK_ATTEMPTS:
+            try:
+                daemonset = kube_client.get(DaemonSet, name=name, namespace=namespace)
+                status = daemonset.status
+
+                if status:
+                    if status.numberAvailable == status.desiredNumberScheduled:
+                        observations += 1
+                        logger.info(
+                            "The Velero DaemonSet is ready (observation: %d/%d)",
+                            attempts,
+                            K8S_CHECK_ATTEMPTS,
+                        )
+                        if observations > K8S_CHECK_OBSERVATIONS:
+                            result.ok = True
+                            return result
+                    else:
+                        result.reason = StatusError("Not all pods are available")
+                        logger.error(
+                            "The Velero DaemonSet is not ready: %s (attempt: %d/%d)",
+                            result.reason,
+                            attempts,
+                            K8S_CHECK_ATTEMPTS,
+                        )
+                else:
+                    result.reason = StatusError("Status is not present")
+                    logger.error(
+                        "The Velero DaemonSet is not ready: %s (attempt: %d/%d)",
+                        result.reason,
+                        attempts,
+                        K8S_CHECK_ATTEMPTS,
+                    )
+            except ApiError as err:
+                result.reason = err
+                logger.error("Failed to confirm the Velero DaemonSet readiness: %s", err)
+                return result
+
+            attempts += 1
+            time.sleep(K8S_CHECK_DELAY)
+
+        return result
+
     def remove(self, kube_client: Client) -> None:
-        """Remove Velero resourses from the cluster.
+        """Remove Velero resources from the cluster.
 
         Args:
             kube_client (Client): The lightkube client used to interact with the cluster.
         """
         remove_msg = (
-            f"Unistalling the following Velero resources from '{self._namespace}' namespace:\n"
-            "   Deployment: 'velero'\n"
-            "   DaemonSet: 'node-agent'\n"
-            "   Secret: 'velero-cloud-credentials'\n"
-            "   ServiceAccount: 'velero'\n"
-            "   ClusterRoleBinding: 'velero'\n"
-            "   BackupStorageLocation: 'default'\n"
-            "   VolumeSnapshotLocation: 'default'"
+            f"Uninstalling the following Velero resources from '{self._namespace}' namespace:\n"
+            "\n".join(
+                [f"    {res.type.__name__}: '{res.name}'" for res in VELERO_SERVER_RESOURCES]
+            )
         )
         logger.info(remove_msg)
 
-        # Delete the Deployment
-        try:
-            kube_client.delete(
-                Deployment,
-                name="velero",
-                cascade=CascadeType.FOREGROUND,
-                namespace=self._namespace,
-            )
-        except ApiError as err:
-            logger.warning("Failed to delete the Velero Deployment: %s", err)
-
-        # Delete the DaemonSet
-        try:
-            kube_client.delete(
-                DaemonSet,
-                name="node-agent",
-                cascade=CascadeType.FOREGROUND,
-                namespace=self._namespace,
-            )
-        except ApiError as err:
-            logger.warning("Failed to delete the Velero NogeAgent: %s", err)
-
-        # Delete the Secret
-        try:
-            kube_client.delete(Secret, name="velero-cloud-credentials", namespace=self._namespace)
-        except ApiError as err:
-            logger.warning("Failed to delete the Velero Secret: %s", err)
-
-        # Delete the ServiceAccount
-        try:
-            kube_client.delete(ServiceAccount, name="velero", namespace=self._namespace)
-        except ApiError as err:
-            logger.warning("Failed to delete the Velero ServiceAccount: %s", err)
-
-        # Delete the BackupStorageLocation
-        try:
-            backup_storage_location = create_namespaced_resource(
-                "velero.io", "v1", "BackupStorageLocation", "backupstoragelocations"
-            )
-            kube_client.delete(backup_storage_location, name="default", namespace=self._namespace)
-        except ApiError as err:
-            logger.warning("Failed to delete the Velero BackupStorageLocation: %s", err)
-
-        # Delete the VolumeSnapshotLocation
-        try:
-            volume_storage_location = create_namespaced_resource(
-                "velero.io", "v1", "VolumeSnapshotLocation", "volumesnapshotlocations"
-            )
-            kube_client.delete(volume_storage_location, name="default", namespace=self._namespace)
-        except ApiError as err:
-            logger.warning("Failed to delete the Velero VolumeSnapshotLocation: %s", err)
-
-        # Delete the ClusterRoleBinding
-        try:
-            kube_client.delete(ClusterRoleBinding, name="velero")
-        except ApiError as err:
-            logger.warning("Failed to delete the Velero ClusterRoleBinding: %s", err)
+        for resource in VELERO_SERVER_RESOURCES:
+            try:
+                if resource.type is NamespacedResource:
+                    kube_client.delete(
+                        resource.type, name=resource.name, namespace=self._namespace
+                    )
+                elif resource.type is GlobalResource:
+                    kube_client.delete(resource.type, name=resource.name)
+            except ApiError as ae:
+                if ae.status == 404:
+                    logging.warning(
+                        "Resource %s '%s' not found, skipping deletion",
+                        resource.type.__name__,
+                        resource.name,
+                    )
+                else:
+                    logging.error(
+                        "Failed to delete %s '%s' resource: %s",
+                        resource.type.__name__,
+                        resource.name,
+                        ae,
+                    )

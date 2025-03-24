@@ -24,12 +24,9 @@ async def test_build_and_deploy(ops_test: OpsTest):
     """
     # Build and deploy charm from local source folder
     charm = await ops_test.build_charm(".")
-    resources = {"httpbin-image": METADATA["resources"]["httpbin-image"]["upstream-source"]}
 
-    # Deploy the charm and wait for active/idle status
+    # Deploy the charm and wait for blocked/idle status
     await asyncio.gather(
-        ops_test.model.deploy(charm, resources=resources, application_name=APP_NAME),
-        ops_test.model.wait_for_idle(
-            apps=[APP_NAME], status="active", raise_on_blocked=True, timeout=1000
-        ),
+        ops_test.model.deploy(charm, application_name=APP_NAME, trust=True),
+        ops_test.model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=60 * 20),
     )
