@@ -56,8 +56,6 @@ class VeleroOperatorCharm(ops.CharmBase):
 
         # Lightkube client needed for interacting with the Kubernetes cluster
         self.lightkube_client = None
-        # Velero instance to manage the Velero server
-        self.velero = None
 
         try:
             self._validate_config()
@@ -70,19 +68,6 @@ class VeleroOperatorCharm(ops.CharmBase):
         self.framework.observe(self.on.update_status, self._on_update_status)
 
     # PROPERTIES
-
-    @property
-    def velero(self):
-        """The Velero instance."""
-        if not self._velero:
-            self._velero = Velero(
-                VELERO_PATH, self.model.name, str(self.config[VELERO_IMAGE_CONFIG_KEY])
-            )
-        return self._velero
-
-    @velero.setter
-    def velero(self, value):
-        self._velero = value
 
     @property
     def lightkube_client(self):
@@ -102,11 +87,17 @@ class VeleroOperatorCharm(ops.CharmBase):
     def _on_install(self, event: ops.InstallEvent) -> None:
         """Handle the install event."""
         self._log_and_set_status(ops.MaintenanceStatus("Deploying Velero server on the cluster"))
+        velero = Velero(
+                VELERO_PATH, self.model.name, str(self.config[VELERO_IMAGE_CONFIG_KEY])
+            )
 
         try:
-            self.velero.install(True if self.config[USE_NODE_AGENT_CONFIG_KEY] else False)
+            
+            velero.install(True if self.config[USE_NODE_AGENT_CONFIG_KEY] else False)
         except VeleroError as ve:
-            raise RuntimeError("Failed to install Velero on the cluster") from ve
+            raise RuntimeError(
+                "Failed to install Velero on the cluster. See juju debug-log for details."
+            ) from ve
 
         self._on_update_status(event)
 
@@ -120,7 +111,7 @@ class VeleroOperatorCharm(ops.CharmBase):
             return
 
         if self.config[USE_NODE_AGENT_CONFIG_KEY]:
-            result = Velero.check_velero_nodeagent(self.lightkube_client, self.model.name)
+            result = Velero.check_velero_node_agent(self.lightkube_client, self.model.name)
             if not result.ok:
                 self._log_and_set_status(
                     ops.BlockedStatus(f"NodeAgent is not ready: {result.reason}")
