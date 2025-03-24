@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 from pytest_operator.plugin import OpsTest
+
 from config import USE_NODE_AGENT_CONFIG_KEY
 
 logger = logging.getLogger(__name__)
@@ -28,8 +29,10 @@ async def test_build_and_deploy(ops_test: OpsTest):
 
     # Deploy the charm and wait for blocked/idle status
     await asyncio.gather(
-        ops_test.model.deploy(charm, application_name=APP_NAME, trust=True, config={USE_NODE_AGENT_CONFIG_KEY: True}),
+        ops_test.model.deploy(
+            charm, application_name=APP_NAME, trust=True, config={USE_NODE_AGENT_CONFIG_KEY: True}
+        ),
         ops_test.model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=60 * 20),
     )
-    
+
     assert ops_test.model.applications[APP_NAME].status_message == "Missing relation: [s3|azure]"

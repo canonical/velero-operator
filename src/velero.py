@@ -11,7 +11,6 @@ from typing import Optional
 
 from lightkube import Client
 from lightkube.core.exceptions import ApiError
-from lightkube.core.resource import GlobalResource, NamespacedResource
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
 
 from config import (
