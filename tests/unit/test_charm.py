@@ -154,3 +154,18 @@ def test_on_install_error(mock_velero, mock_lightkube_client):
     # Act
     with pytest.raises(RuntimeError):
         ctx.run(ctx.on.install(), testing.State())
+
+
+def test_on_remove(mock_velero, mock_lightkube_client):
+    """Test that the install event calls Velero.install with the correct arguments."""
+    # Arrange
+    ctx = testing.Context(VeleroOperatorCharm)
+
+    # Act
+    state_out = ctx.run(ctx.on.remove(), testing.State())
+
+    # Assert
+    mock_velero.remove.assert_called_once()
+    assert state_out.unit_status == testing.MaintenanceStatus(
+        "Removing Velero server from the cluster"
+    )
