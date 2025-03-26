@@ -11,6 +11,7 @@ from typing import Optional
 
 from lightkube import Client
 from lightkube.core.exceptions import ApiError
+from lightkube.core.resource import GlobalResource, NamespacedResource
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
 
 from config import (
@@ -19,6 +20,7 @@ from config import (
     K8S_CHECK_OBSERVATIONS,
     VELERO_DEPLOYMENT_NAME,
     VELERO_NODE_AGENT_NAME,
+    VELERO_SERVER_RESOURCES,
 )
 
 logger = logging.getLogger(__name__)
@@ -240,3 +242,40 @@ class Velero:
             time.sleep(K8S_CHECK_DELAY)
 
         return result
+
+    def remove(self, kube_client: Client) -> None:
+        """Remove Velero resources from the cluster.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+        """
+        remove_msg = (
+            f"Uninstalling the following Velero resources from '{self._namespace}' namespace:\n"
+            + "\n".join(
+                [f"    {res.type.__name__}: '{res.name}'" for res in VELERO_SERVER_RESOURCES]
+            )
+        )
+        logger.info(remove_msg)
+
+        for resource in VELERO_SERVER_RESOURCES:
+            try:
+                if issubclass(resource.type, NamespacedResource):
+                    kube_client.delete(
+                        resource.type, name=resource.name, namespace=self._namespace
+                    )
+                elif issubclass(resource.type, GlobalResource):
+                    kube_client.delete(resource.type, name=resource.name)
+            except ApiError as ae:
+                if ae.status.code == 404:
+                    logging.warning(
+                        "Resource %s '%s' not found, skipping deletion",
+                        resource.type.__name__,
+                        resource.name,
+                    )
+                else:
+                    logging.error(
+                        "Failed to delete %s '%s' resource: %s",
+                        resource.type.__name__,
+                        resource.name,
+                        ae,
+                    )
