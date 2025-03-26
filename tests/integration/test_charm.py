@@ -79,7 +79,7 @@ async def test_remove(ops_test: OpsTest, lightkube_client):
 
     for resource in VELERO_SERVER_RESOURCES:
         try:
-            lightkube_client.delete(resource.type, resource.name)
+            lightkube_client.get(resource.type, resource.name)
             assert False, f"Resource {resource.name} was not deleted"
         except ApiError as ae:
             assert ae.response.status_code == 404
