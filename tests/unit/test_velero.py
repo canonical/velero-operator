@@ -19,71 +19,72 @@ VELERO_EXPECTED_FLAGS = [
 
 
 @pytest.fixture(autouse=True)
-def mocked_check_call():
-    with patch("subprocess.check_call") as mocked_check_call:
-        mocked_check_call.return_value = 0
-
-        yield mocked_check_call
+def mock_check_call():
+    """Mock subprocess.check_call to return 0."""
+    with patch("subprocess.check_call") as mock_check_call:
+        mock_check_call.return_value = 0
+        yield mock_check_call
 
 
 @pytest.fixture(autouse=True)
-def mocked_check_output():
-    with patch("subprocess.check_output") as mocked_check_output:
-        mocked_check_output.return_value = "stdout"
-
-        yield mocked_check_output
-
-
-@pytest.fixture()
-def mocked_check_call_failing(mocked_check_call):
-    cpe = CalledProcessError(cmd="", returncode=1, stderr="stderr", output="stdout")
-    mocked_check_call.return_value = None
-    mocked_check_call.side_effect = cpe
-
-    yield mocked_check_call
+def mock_check_output():
+    """Mock subprocess.check_output to return a string."""
+    with patch("subprocess.check_output") as mock_check_output:
+        mock_check_output.return_value = "stdout"
+        yield mock_check_output
 
 
 @pytest.fixture()
-def mocked_check_output_failing(mocked_check_output):
+def mock_check_call_failing(mock_check_call):
+    """Mock a subprocess.check_call that fails."""
     cpe = CalledProcessError(cmd="", returncode=1, stderr="stderr", output="stdout")
-    mocked_check_output.return_value = None
-    mocked_check_output.side_effect = cpe
+    mock_check_call.return_value = None
+    mock_check_call.side_effect = cpe
 
-    yield mocked_check_output
+    yield mock_check_call
 
 
-def test_velero_install(mocked_check_call):
+@pytest.fixture()
+def mock_check_output_failing(mock_check_output):
+    """Mock subprocess.check_output to raise a CalledProcessError."""
+    cpe = CalledProcessError(cmd="", returncode=1, stderr="stderr", output="stdout")
+    mock_check_output.return_value = None
+    mock_check_output.side_effect = cpe
+
+    yield mock_check_output
+
+
+@pytest.fixture()
+def mock_lightkube_client():
+    """Mock the lightkube Client in velero.py."""
+    return MagicMock()
+
+
+@pytest.fixture()
+def velero():
+    """Return a Velero instance."""
+    return Velero(velero_binary_path=VELERO_BINARY, namespace=NAMESPACE, velero_image=VELERO_IMAGE)
+
+
+def test_velero_install(mock_check_call, velero):
     """Tests that velero.install calls the binary successfully with the expected arguments."""
-    velero = Velero(
-        velero_binary_path=VELERO_BINARY, namespace=NAMESPACE, velero_image=VELERO_IMAGE
-    )
-
     velero.install(False)
 
     expected_call_args = [VELERO_BINARY, "install"]
     expected_call_args.extend(VELERO_EXPECTED_FLAGS)
     expected_call_args.append("--use-node-agent=False")
-    mocked_check_call.assert_called_once_with(expected_call_args)
+    mock_check_call.assert_called_once_with(expected_call_args)
 
     velero.install(True)
 
     expected_call_args[-1] = "--use-node-agent=True"
-    mocked_check_call.assert_called_with(expected_call_args)
+    mock_check_call.assert_called_with(expected_call_args)
 
 
-def test_velero_install_failed(mocked_check_call_failing):
+def test_velero_install_failed(mock_check_call_failing, velero):
     """Tests that velero.install raises a VeleroError when the subprocess call fails."""
-    velero = Velero(
-        velero_binary_path=VELERO_BINARY, namespace=NAMESPACE, velero_image=VELERO_IMAGE
-    )
-
     with pytest.raises(VeleroError):
         velero.install(False)
-
-
-@pytest.fixture
-def mock_lightkube_client():
-    return MagicMock()
 
 
 def test_check_velero_deployment_success(mock_lightkube_client):
