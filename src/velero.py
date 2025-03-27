@@ -94,8 +94,8 @@ class Velero:
         except subprocess.CalledProcessError as cpe:
             error_msg = f"'velero install' command returned non-zero exit code: {cpe.returncode}."
             logging.error(error_msg)
-            logging.error("stdout: %s", {cpe.stdout})
-            logging.error("stderr: %s", {cpe.stderr})
+            logging.error("stdout: %s", cpe.stdout)
+            logging.error("stderr: %s", cpe.stderr)
 
             raise VeleroError(error_msg) from cpe
 
