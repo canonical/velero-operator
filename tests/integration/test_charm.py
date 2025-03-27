@@ -49,8 +49,8 @@ async def test_build_and_deploy(ops_test: OpsTest):
         model.deploy(
             charm, application_name=APP_NAME, trust=True, config={USE_NODE_AGENT_CONFIG_KEY: True}
         ),
-        model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=60 * 20),
+        model.wait_for_idle(apps=[APP_NAME], status="active", timeout=60 * 20),
     )
 
     for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == "Missing relation: [s3|azure]"
+        assert unit.workload_status_message == "Unit is ready"

@@ -50,9 +50,6 @@ class VeleroOperatorCharm(ops.CharmBase):
 
     def __init__(self, framework: ops.Framework):
         super().__init__(framework)
-        self._stored.set_default(
-            storage_provider_attached=None,
-        )
 
         # Lightkube client needed for interacting with the Kubernetes cluster
         self.lightkube_client = None
@@ -114,10 +111,6 @@ class VeleroOperatorCharm(ops.CharmBase):
                     ops.BlockedStatus(f"NodeAgent is not ready: {result.reason}")
                 )
                 return
-
-        if not self._stored.storage_provider_attached:
-            self._log_and_set_status(ops.BlockedStatus("Missing relation: [s3|azure]"))
-            return
 
         self._log_and_set_status(ops.ActiveStatus("Unit is Ready"))
 

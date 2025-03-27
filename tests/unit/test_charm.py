@@ -94,8 +94,6 @@ def test_charm_k8s_access_failed(mock_lightkube_client, code, expected_status):
         (False, True, True, testing.BlockedStatus("Deployment is not ready: reason"), True),
         # NodeAgent not ready
         (True, False, True, testing.BlockedStatus("NodeAgent is not ready: reason"), True),
-        # Missing storage relation
-        (True, True, False, testing.BlockedStatus("Missing relation: [s3|azure]"), True),
         # All good
         (True, True, True, testing.ActiveStatus("Unit is Ready"), True),
         # All good
@@ -142,7 +140,7 @@ def test_on_install(mock_velero, mock_lightkube_client):
 
     # Assert
     mock_velero.install.assert_called_once_with(False)
-    assert state_out.unit_status == testing.BlockedStatus("Missing relation: [s3|azure]")
+    assert state_out.unit_status == testing.ActiveStatus("Unit is Ready")
 
 
 def test_on_install_error(mock_velero, mock_lightkube_client):
