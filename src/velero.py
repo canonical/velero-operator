@@ -13,7 +13,7 @@ from lightkube import Client
 from lightkube.core.exceptions import ApiError
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
 
-from config import (
+from constants import (
     K8S_CHECK_ATTEMPTS,
     K8S_CHECK_DELAY,
     K8S_CHECK_OBSERVATIONS,

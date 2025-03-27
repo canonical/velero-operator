@@ -16,8 +16,8 @@ from config import (
     VELERO_AWS_PLUGIN_CONFIG_KEY,
     VELERO_AZURE_PLUGIN_CONFIG_KEY,
     VELERO_IMAGE_CONFIG_KEY,
-    VELERO_PATH,
 )
+from constants import VELERO_BINARY_PATH
 from velero import Velero, VeleroError
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ class VeleroOperatorCharm(ops.CharmBase):
     def _on_install(self, event: ops.InstallEvent) -> None:
         """Handle the install event."""
         self._log_and_set_status(ops.MaintenanceStatus("Deploying Velero server on the cluster"))
-        velero = Velero(VELERO_PATH, self.model.name, str(self.config[VELERO_IMAGE_CONFIG_KEY]))
+        velero = Velero(VELERO_BINARY_PATH, self.model.name, str(self.config[VELERO_IMAGE_CONFIG_KEY]))
 
         try:
             velero.install(True if self.config[USE_NODE_AGENT_CONFIG_KEY] else False)
