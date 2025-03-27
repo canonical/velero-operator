@@ -154,3 +154,29 @@ def test_on_install_error(mock_velero, mock_lightkube_client):
     # Act
     with pytest.raises(RuntimeError):
         ctx.run(ctx.on.install(), testing.State())
+
+
+@patch("charm.logger")
+@pytest.mark.parametrize(
+    "status,message,expected_log_level,expect_exception",
+    [
+        (testing.ActiveStatus("active"), "active", "info", False),
+        (testing.MaintenanceStatus("maintenance"), "maintenance", "info", False),
+        (testing.WaitingStatus("waiting"), "waiting", "info", False),
+        (testing.BlockedStatus("error"), "error", "warning", False),
+        (testing.UnknownStatus(), None, None, True),
+    ],
+)
+def test_log_and_set_status(logger, status, message, expected_log_level, expect_exception):
+    ctx = testing.Context(VeleroOperatorCharm)
+
+    with ctx(ctx.on.start(), testing.State()) as manager:
+        if expect_exception:
+            with pytest.raises(ValueError, match="Unknown status type"):
+                manager.charm._log_and_set_status(status)
+        else:
+            manager.charm._log_and_set_status(status)
+            log_method = getattr(logger, expected_log_level)
+            log_method.assert_called_once_with(message)
+
+        manager.run()

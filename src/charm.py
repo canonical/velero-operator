@@ -123,22 +123,29 @@ class VeleroOperatorCharm(ops.CharmBase):
 
     # HELPER METHODS
 
-    def _log_and_set_status(self, status: ops.StatusBase) -> None:
+    def _log_and_set_status(
+        self,
+        status: Union[
+            ops.ActiveStatus, ops.MaintenanceStatus, ops.WaitingStatus, ops.BlockedStatus
+        ],
+    ) -> None:
         """Set the status of the charm and logs the status message.
 
         Args:
             status: The status to set
         """
+        if isinstance(status, ops.ActiveStatus):
+            logger.info(status.message)
+        elif isinstance(status, ops.MaintenanceStatus):
+            logger.info(status.message)
+        elif isinstance(status, ops.WaitingStatus):
+            logger.info(status.message)
+        elif isinstance(status, ops.BlockedStatus):
+            logger.warning(status.message)
+        else:
+            raise ValueError(f"Unknown status type: {status}")
+
         self.unit.status = status
-
-        log_destination_map = {
-            ops.ActiveStatus: logger.info,
-            ops.BlockedStatus: logger.warning,
-            ops.MaintenanceStatus: logger.info,
-            ops.WaitingStatus: logger.info,
-        }
-
-        log_destination_map[type(status)](status.message)
 
     def _validate_config(self) -> None:
         """Check the charm configs and raise error if they are not correct.
