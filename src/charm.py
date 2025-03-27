@@ -56,7 +56,6 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             return
 
         self.framework.observe(self.on.install, self._on_install)
-        self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self.on.collect_unit_status, self._on_update_status)
 
     # PROPERTIES
@@ -93,19 +92,17 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
     def _on_update_status(self, event: ops.EventBase) -> None:
         """Handle the update-status event."""
-        result = Velero.check_velero_deployment(self.lightkube_client, self.model.name)
-        if not result.ok:
-            self._log_and_set_status(
-                ops.BlockedStatus(f"Deployment is not ready: {result.reason}")
-            )
+        try:
+            Velero.check_velero_deployment(self.lightkube_client, self.model.name)
+        except VeleroError as ve:
+            self._log_and_set_status(ops.BlockedStatus(f"Deployment is not ready: {ve}"))
             return
 
         if self.config[USE_NODE_AGENT_CONFIG_KEY]:
-            result = Velero.check_velero_node_agent(self.lightkube_client, self.model.name)
-            if not result.ok:
-                self._log_and_set_status(
-                    ops.BlockedStatus(f"NodeAgent is not ready: {result.reason}")
-                )
+            try:
+                Velero.check_velero_node_agent(self.lightkube_client, self.model.name)
+            except VeleroError as ve:
+                self._log_and_set_status(ops.BlockedStatus(f"NodeAgent is not ready: {ve}"))
                 return
 
         self._log_and_set_status(ops.ActiveStatus("Unit is Ready"))

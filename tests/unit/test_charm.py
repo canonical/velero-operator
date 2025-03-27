@@ -115,8 +115,10 @@ def test_on_update_status(
 ):
     """Test that the charm status is set correctly based on the deployment and nodeagent status."""
     # Arrange
-    check_velero_deployment.return_value = MagicMock(ok=deployment_ok, reason="reason")
-    check_velero_node_agent.return_value = MagicMock(ok=nodeagent_ok, reason="reason")
+    if not deployment_ok:
+        check_velero_deployment.side_effect = VeleroError("reason")
+    if not nodeagent_ok:
+        check_velero_node_agent.side_effect = VeleroError("reason")
 
     ctx = testing.Context(VeleroOperatorCharm)
 

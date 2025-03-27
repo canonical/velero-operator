@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from lightkube import ApiError
 
-from velero import CheckResult, StatusError, Velero, VeleroError
+from velero import Velero, VeleroError
 
 NAMESPACE = "test-namespace"
 VELERO_IMAGE = "velero/velero:latest"
@@ -92,9 +92,7 @@ def test_check_velero_deployment_success(mock_lightkube_client):
     mock_deployment.status.conditions = [MagicMock(type="Available", status="True")]
     mock_lightkube_client.get.return_value = mock_deployment
 
-    result = Velero.check_velero_deployment(mock_lightkube_client, "velero")
-    assert isinstance(result, CheckResult)
-    assert result.ok is True
+    assert Velero.check_velero_deployment(mock_lightkube_client, "velero") is None
 
 
 def test_check_velero_deployment_unavailable(mock_lightkube_client):
@@ -104,9 +102,9 @@ def test_check_velero_deployment_unavailable(mock_lightkube_client):
     ]
     mock_lightkube_client.get.return_value = mock_deployment
 
-    result = Velero.check_velero_deployment(mock_lightkube_client, "velero")
-    assert result.ok is False
-    assert isinstance(result.reason, StatusError)
+    with pytest.raises(VeleroError) as ve:
+        Velero.check_velero_deployment(mock_lightkube_client, "velero")
+        assert str(ve) == "not ready"
 
 
 def test_check_velero_deployment_missing_conditions(mock_lightkube_client):
@@ -114,9 +112,9 @@ def test_check_velero_deployment_missing_conditions(mock_lightkube_client):
     mock_deployment.status.conditions = []
     mock_lightkube_client.get.return_value = mock_deployment
 
-    result = Velero.check_velero_deployment(mock_lightkube_client, "velero")
-    assert result.ok is False
-    assert isinstance(result.reason, StatusError)
+    with pytest.raises(VeleroError) as ve:
+        Velero.check_velero_deployment(mock_lightkube_client, "velero")
+        assert str(ve) == "Availability condition not found"
 
 
 def test_check_velero_deployment_api_error(mock_lightkube_client):
@@ -124,9 +122,9 @@ def test_check_velero_deployment_api_error(mock_lightkube_client):
         request=MagicMock(), response=MagicMock(status_code=500)
     )
 
-    result = Velero.check_velero_deployment(mock_lightkube_client, "velero")
-    assert result.ok is False
-    assert isinstance(result.reason, ApiError)
+    with pytest.raises(VeleroError) as ve:
+        Velero.check_velero_deployment(mock_lightkube_client, "velero")
+        assert str(ve) == "Failed to confirm the Velero Deployment readiness"
 
 
 def test_check_velero_node_agent_success(mock_lightkube_client):
@@ -135,8 +133,7 @@ def test_check_velero_node_agent_success(mock_lightkube_client):
     mock_daemonset.status.desiredNumberScheduled = 3
     mock_lightkube_client.get.return_value = mock_daemonset
 
-    result = Velero.check_velero_node_agent(mock_lightkube_client, "velero")
-    assert result.ok is True
+    assert Velero.check_velero_node_agent(mock_lightkube_client, "velero") is None
 
 
 def test_check_velero_node_agent_not_ready(mock_lightkube_client):
@@ -145,9 +142,9 @@ def test_check_velero_node_agent_not_ready(mock_lightkube_client):
     mock_daemonset.status.desiredNumberScheduled = 3
     mock_lightkube_client.get.return_value = mock_daemonset
 
-    result = Velero.check_velero_node_agent(mock_lightkube_client, "velero")
-    assert result.ok is False
-    assert isinstance(result.reason, StatusError)
+    with pytest.raises(VeleroError) as ve:
+        Velero.check_velero_node_agent(mock_lightkube_client, "velero")
+        assert str(ve) == "The Velero Node Agent is not ready"
 
 
 def test_check_velero_node_agent_no_status(mock_lightkube_client):
@@ -155,9 +152,9 @@ def test_check_velero_node_agent_no_status(mock_lightkube_client):
     mock_daemonset.status = None
     mock_lightkube_client.get.return_value = mock_daemonset
 
-    result = Velero.check_velero_node_agent(mock_lightkube_client, "velero")
-    assert result.ok is False
-    assert isinstance(result.reason, StatusError)
+    with pytest.raises(VeleroError) as ve:
+        Velero.check_velero_node_agent(mock_lightkube_client, "velero")
+        assert str(ve) == "The Velero Node Agent is not ready"
 
 
 def test_check_velero_node_agent_api_error(mock_lightkube_client):
@@ -165,6 +162,6 @@ def test_check_velero_node_agent_api_error(mock_lightkube_client):
         request=MagicMock(), response=MagicMock(status_code=500)
     )
 
-    result = Velero.check_velero_node_agent(mock_lightkube_client, "velero")
-    assert result.ok is False
-    assert isinstance(result.reason, ApiError)
+    with pytest.raises(VeleroError) as ve:
+        Velero.check_velero_node_agent(mock_lightkube_client, "velero")
+        assert str(ve) == "Failed to confirm the Velero Node Agent readiness"

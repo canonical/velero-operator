@@ -6,7 +6,6 @@
 import logging
 import subprocess
 import time
-from dataclasses import dataclass
 from typing import Optional
 
 from lightkube import Client
@@ -22,18 +21,6 @@ from constants import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class StatusError(Exception):
-    """Base class for Status exceptions."""
-
-
-@dataclass
-class CheckResult:
-    """Represents the outcome of the check call."""
-
-    ok: bool = False
-    reason: Optional[Exception] = None
 
 
 class VeleroError(Exception):
@@ -102,7 +89,7 @@ class Velero:
     @staticmethod
     def check_velero_deployment(
         kube_client: Client, namespace: str, name: str = VELERO_DEPLOYMENT_NAME
-    ) -> CheckResult:
+    ) -> None:
         """Check the readiness of the Velero deployment in the Kubernetes cluster.
 
         This function attempts to verify the availability status of the Velero deployment
@@ -115,13 +102,12 @@ class Velero:
             namespace (str): The namespace where the deployment is deployed.
             name (str, optional): The name of the Velero deployment. Defaults to "velero".
 
-        Returns:
-            CheckResult: An object containing the result of the check, including any errors
-            encountered during the process.
+        Raises:
+            VeleroError: If the Velero deployment is not ready.
         """
-        result = CheckResult()
         attempts = 0
         observations = 0
+        reason: Optional[str] = None
 
         logger.info("Checking the Velero Deployment readiness")
 
@@ -138,47 +124,42 @@ class Velero:
                     (cond for cond in conditions if cond.type == "Available"), None
                 )
 
-                if availability:
-                    if availability.status == "True":
-                        observations += 1
-                        logger.info(
-                            "The Velero Deployment is ready (observation: %d/%d)",
-                            attempts,
-                            K8S_CHECK_OBSERVATIONS,
-                        )
-                        if observations > K8S_CHECK_OBSERVATIONS:
-                            result.ok = True
-                            return result
-                    else:
-                        result.reason = StatusError(availability.message)
-                        logger.warning(
-                            "The Velero Deployment is not ready: %s (attempt: %d/%d)",
-                            result.reason,
-                            attempts,
-                            K8S_CHECK_ATTEMPTS,
-                        )
+                if not availability:
+                    logger.error(
+                        "The Velero Deployment is not ready: Availability condition not found"
+                    )
+                    raise VeleroError("Availability condition not found")
+
+                if availability.status == "True":
+                    observations += 1
+                    logger.info(
+                        "The Velero Deployment is ready (observation: %d/%d)",
+                        attempts,
+                        K8S_CHECK_OBSERVATIONS,
+                    )
+                    if observations > K8S_CHECK_OBSERVATIONS:
+                        return
                 else:
-                    result.reason = StatusError("Availability status is not present")
+                    reason = availability.message
                     logger.warning(
                         "The Velero Deployment is not ready: %s (attempt: %d/%d)",
-                        result.reason,
+                        reason,
                         attempts,
                         K8S_CHECK_ATTEMPTS,
                     )
             except ApiError as err:
-                result.reason = err
                 logger.error("Failed to confirm the Velero Deployment readiness: %s", err)
-                return result
+                raise VeleroError from err
 
             attempts += 1
             time.sleep(K8S_CHECK_DELAY)
 
-        return result
+        raise VeleroError(reason)
 
     @staticmethod
     def check_velero_node_agent(
         kube_client: Client, namespace: str, name: str = VELERO_NODE_AGENT_NAME
-    ) -> CheckResult:
+    ) -> None:
         """Check the readiness of the Velero DaemonSet in a Kubernetes cluster.
 
         This function attempts to verify if the Velero DaemonSet is fully available
@@ -190,12 +171,12 @@ class Velero:
             namespace (str): The namespace where the DaemonSet is deployed.
             name (str, optional): The name of the Velero DaemonSet. Defaults to "velero".
 
-        Returns:
-            CheckResult: An object containing the result of the readiness check.
+        Raises:
+            VeleroError: If the Velero DaemonSet is not
         """
-        result = CheckResult()
         attempts = 0
         observations = 0
+        reason: Optional[str] = None
 
         logger.info("Checking the Velero NodeAgent readiness")
 
@@ -204,39 +185,35 @@ class Velero:
                 daemonset = kube_client.get(DaemonSet, name=name, namespace=namespace)
                 status = daemonset.status
 
-                if status:
-                    if status.numberAvailable == status.desiredNumberScheduled:
-                        observations += 1
-                        logger.info(
-                            "The Velero DaemonSet is ready (observation: %d/%d)",
-                            attempts,
-                            K8S_CHECK_ATTEMPTS,
-                        )
-                        if observations > K8S_CHECK_OBSERVATIONS:
-                            result.ok = True
-                            return result
-                    else:
-                        result.reason = StatusError("Not all pods are available")
-                        logger.error(
-                            "The Velero DaemonSet is not ready: %s (attempt: %d/%d)",
-                            result.reason,
-                            attempts,
-                            K8S_CHECK_ATTEMPTS,
-                        )
-                else:
-                    result.reason = StatusError("Status is not present")
+                if not status:
                     logger.error(
-                        "The Velero DaemonSet is not ready: %s (attempt: %d/%d)",
-                        result.reason,
+                        "The Velero DaemonSet is not ready: Status not found in the DaemonSet"
+                    )
+                    raise VeleroError("Status not found in the DaemonSet")
+
+                if status.numberAvailable == status.desiredNumberScheduled:
+                    observations += 1
+                    logger.info(
+                        "The Velero DaemonSet is ready (observation: %d/%d)",
                         attempts,
                         K8S_CHECK_ATTEMPTS,
                     )
+                    if observations > K8S_CHECK_OBSERVATIONS:
+                        return
+                else:
+                    reason = "Not all pods are available"
+                    logger.error(
+                        "The Velero DaemonSet is not ready: %s (attempt: %d/%d)",
+                        reason,
+                        attempts,
+                        K8S_CHECK_ATTEMPTS,
+                    )
+
             except ApiError as err:
-                result.reason = err
                 logger.error("Failed to confirm the Velero DaemonSet readiness: %s", err)
-                return result
+                raise VeleroError from err
 
             attempts += 1
             time.sleep(K8S_CHECK_DELAY)
 
-        return result
+        raise VeleroError(reason)
