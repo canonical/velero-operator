@@ -165,7 +165,9 @@ def test_on_install_error(mock_velero, mock_lightkube_client):
         (testing.UnknownStatus(), None, None, True),
     ],
 )
-def test_log_and_set_status(logger, status, message, expected_log_level, expect_exception):
+def test_log_and_set_status(
+    logger, status, message, expected_log_level, expect_exception, mock_lightkube_client
+):
     ctx = testing.Context(VeleroOperatorCharm)
 
     with ctx(ctx.on.start(), testing.State()) as manager:
