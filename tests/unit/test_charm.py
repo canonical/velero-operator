@@ -57,7 +57,12 @@ def test_invalid_image_config(image_key):
 @pytest.mark.parametrize(
     "code, expected_status",
     [
-        (403, testing.BlockedStatus("The charm must be deployed with '--trust' flag enabled")),
+        (
+            403,
+            testing.BlockedStatus(
+                "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
+            ),
+        ),
         (
             404,
             testing.BlockedStatus(
@@ -176,8 +181,6 @@ def test_log_and_set_status(
     # Act
     with ctx(ctx.on.start(), testing.State()) as manager:
         # Assert
-        manager.run()
-
         if expect_exception:
             with pytest.raises(ValueError, match="Unknown status type"):
                 manager.charm._log_and_set_status(status)
