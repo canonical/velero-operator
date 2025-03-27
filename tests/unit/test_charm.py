@@ -136,10 +136,13 @@ def test_on_install(mock_velero, mock_lightkube_client):
     ctx = testing.Context(VeleroOperatorCharm)
 
     # Act
-    state_out = ctx.run(ctx.on.install(), testing.State())
+    state_out = ctx.run(
+        ctx.on.install(),
+        testing.State(config={VELERO_IMAGE_CONFIG_KEY: "image", USE_NODE_AGENT_CONFIG_KEY: False}),
+    )
 
     # Assert
-    mock_velero.install.assert_called_once_with(False)
+    mock_velero.install.assert_called_once_with("image", False)
     assert state_out.unit_status == testing.ActiveStatus("Unit is Ready")
 
 

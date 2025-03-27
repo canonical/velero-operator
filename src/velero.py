@@ -43,7 +43,7 @@ class VeleroError(Exception):
 class Velero:
     """Wrapper for the Velero binary."""
 
-    def __init__(self, velero_binary_path: str, namespace: str, velero_image: str) -> None:
+    def __init__(self, velero_binary_path: str, namespace: str) -> None:
         """Initialize the Velero class.
 
         The class provides a python API to interact with the Velero binary, supporting
@@ -56,28 +56,27 @@ class Velero:
         """
         self._velero_binary_path = velero_binary_path
         self._namespace = namespace
-        self._velero_image = velero_image
 
     @property
     def _velero_install_flags(self) -> list:
         """Return the default Velero install flags."""
         return [
             f"--namespace={self._namespace}",
-            f"--image={self._velero_image}",
             "--no-default-backup-location",
             "--no-secret",
             "--use-volume-snapshots=false",
         ]
 
-    def install(self, use_node_agent: bool) -> None:
+    def install(self, velero_image: str, use_node_agent: bool) -> None:
         """Install Velero in the Kubernetes cluster.
 
         Args:
+            velero_image: The Velero image to use.
             use_node_agent: Whether to use the Velero node agent (DaemonSet).
         """
         install_msg = (
             "Installing the Velero with the following settings:\n"
-            f"  Image: '{self._velero_image}'\n"
+            f"  Image: '{velero_image}'\n"
             f"  Namespace: '{self._namespace}'\n"
             f"  Node-agent enabled: '{use_node_agent}'"
         )
@@ -87,6 +86,7 @@ class Velero:
                 [
                     self._velero_binary_path,
                     "install",
+                    f"--image={velero_image}",
                     *self._velero_install_flags,
                     f"--use-node-agent={use_node_agent}",
                 ]

@@ -84,12 +84,13 @@ class VeleroOperatorCharm(ops.CharmBase):
     def _on_install(self, event: ops.InstallEvent) -> None:
         """Handle the install event."""
         self._log_and_set_status(ops.MaintenanceStatus("Deploying Velero server on the cluster"))
-        velero = Velero(
-            VELERO_BINARY_PATH, self.model.name, str(self.config[VELERO_IMAGE_CONFIG_KEY])
-        )
+        velero = Velero(VELERO_BINARY_PATH, self.model.name)
 
         try:
-            velero.install(True if self.config[USE_NODE_AGENT_CONFIG_KEY] else False)
+            velero.install(
+                str(self.config[VELERO_IMAGE_CONFIG_KEY]),
+                bool(self.config[USE_NODE_AGENT_CONFIG_KEY]),
+            )
         except VeleroError as ve:
             raise RuntimeError(
                 "Failed to install Velero on the cluster. See juju debug-log for details."

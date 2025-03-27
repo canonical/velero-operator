@@ -10,8 +10,8 @@ NAMESPACE = "test-namespace"
 VELERO_IMAGE = "velero/velero:latest"
 VELERO_BINARY = "/usr/local/bin/velero"
 VELERO_EXPECTED_FLAGS = [
-    f"--namespace={NAMESPACE}",
     f"--image={VELERO_IMAGE}",
+    f"--namespace={NAMESPACE}",
     "--no-default-backup-location",
     "--no-secret",
     "--use-volume-snapshots=false",
@@ -63,19 +63,19 @@ def mock_lightkube_client():
 @pytest.fixture()
 def velero():
     """Return a Velero instance."""
-    return Velero(velero_binary_path=VELERO_BINARY, namespace=NAMESPACE, velero_image=VELERO_IMAGE)
+    return Velero(velero_binary_path=VELERO_BINARY, namespace=NAMESPACE)
 
 
 def test_velero_install(mock_check_call, velero):
     """Tests that velero.install calls the binary successfully with the expected arguments."""
-    velero.install(False)
+    velero.install(VELERO_IMAGE, False)
 
     expected_call_args = [VELERO_BINARY, "install"]
     expected_call_args.extend(VELERO_EXPECTED_FLAGS)
     expected_call_args.append("--use-node-agent=False")
     mock_check_call.assert_called_once_with(expected_call_args)
 
-    velero.install(True)
+    velero.install(VELERO_IMAGE, True)
 
     expected_call_args[-1] = "--use-node-agent=True"
     mock_check_call.assert_called_with(expected_call_args)
@@ -84,7 +84,7 @@ def test_velero_install(mock_check_call, velero):
 def test_velero_install_failed(mock_check_call_failing, velero):
     """Tests that velero.install raises a VeleroError when the subprocess call fails."""
     with pytest.raises(VeleroError):
-        velero.install(False)
+        velero.install(VELERO_IMAGE, False)
 
 
 def test_check_velero_deployment_success(mock_lightkube_client):
