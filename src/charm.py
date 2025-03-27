@@ -5,47 +5,41 @@
 """The Velero Charm."""
 
 import logging
-from typing import Type, Union
+from typing import Generic, Type, TypeVar, Union
 
 import ops
 from lightkube import ApiError, Client
 from lightkube.resources.rbac_authorization_v1 import ClusterRole
+from pydantic import BaseModel, ValidationError
 
 from config import (
     USE_NODE_AGENT_CONFIG_KEY,
-    VELERO_AWS_PLUGIN_CONFIG_KEY,
-    VELERO_AZURE_PLUGIN_CONFIG_KEY,
     VELERO_IMAGE_CONFIG_KEY,
+    CharmConfig,
 )
 from constants import VELERO_BINARY_PATH
 from velero import Velero, VeleroError
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T", bound=BaseModel)
 
 
-class WithStatusError(Exception):
-    """Base class of exceptions for when the raiser has an opinion on the charm status."""
+class TypedCharmBase(ops.CharmBase, Generic[T]):
+    """Class to be used for extending config-typed charms."""
 
-    def __init__(
-        self,
-        msg: str,
-        status_type: Type[
-            Union[ops.ActiveStatus, ops.WaitingStatus, ops.BlockedStatus, ops.MaintenanceStatus]
-        ],
-    ):
-        super().__init__(str(msg))
-        self.msg = str(msg)
-        self.status_type = status_type
+    config_type: Type[T]
 
     @property
-    def status(self):
-        """Return an instance of self.status_type, instantiated with this exception's message."""
-        return self.status_type(self.msg)
+    def config(self) -> T:  # type: ignore
+        """Return a config instance validated and parsed using the provided pydantic class."""
+        translated_keys = {k.replace("-", "_"): v for k, v in self.model.config.items()}
+        return self.config_type(**translated_keys)
 
 
-class VeleroOperatorCharm(ops.CharmBase):
+class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
     """Charm the service."""
 
+    config_type = CharmConfig
     _stored = ops.StoredState()
 
     def __init__(self, framework: ops.Framework):
@@ -57,8 +51,8 @@ class VeleroOperatorCharm(ops.CharmBase):
         try:
             self._validate_config()
             self._is_trusted()
-        except WithStatusError as e:
-            self._log_and_set_status(e.status)
+        except ValueError as ve:
+            self._log_and_set_status(ops.BlockedStatus(str(ve)))
             return
 
         self.framework.observe(self.on.install, self._on_install)
@@ -147,36 +141,33 @@ class VeleroOperatorCharm(ops.CharmBase):
         """Check the charm configs and raise error if they are not correct.
 
         Raises:
-            ErrorWithStatus: If any of the charm configs is not correct
+            ValueError: If any of the charm configs is not correct
         """
-        for config_key in [
-            VELERO_IMAGE_CONFIG_KEY,
-            VELERO_AWS_PLUGIN_CONFIG_KEY,
-            VELERO_AZURE_PLUGIN_CONFIG_KEY,
-        ]:
-            if not self.config[config_key]:
-                raise WithStatusError(
-                    f"The config '{config_key}' cannot be empty", ops.BlockedStatus
-                )
+        try:
+            _ = self.config
+        except ValidationError as ve:
+            fields = []
+            for err in ve.errors():
+                field = ".".join(str(p).replace("_", "-") for p in err["loc"])
+                fields.append(field)
+            error_details = ", ".join(fields)
+            raise ValueError(f"Invalid configuration: {error_details}")
 
     def _is_trusted(self) -> None:
         """Check if the app is trusted. Ie deployed with --trust flag.
 
         Raises:
-            WithStatusError: If the app is not trusted
+            VelueError: If the app is not trusted
         """
         try:
             self.lightkube_client.list(ClusterRole)
         except ApiError as ae:
             if ae.status.code == 403:
-                raise WithStatusError(
-                    "The charm must be deployed with '--trust' flag enabled", ops.BlockedStatus
-                )
+                raise ValueError("The charm must be deployed with '--trust' flag enabled")
             else:
                 logger.error(f"Failed to check if the app is trusted: {ae}")
-                raise WithStatusError(
-                    "Failed to check if charm can access K8s API, check logs for details",
-                    ops.BlockedStatus,
+                raise ValueError(
+                    "Failed to check if charm can access K8s API, check logs for details"
                 )
 
 

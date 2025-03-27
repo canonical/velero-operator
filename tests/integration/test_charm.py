@@ -53,4 +53,4 @@ async def test_build_and_deploy(ops_test: OpsTest):
     )
 
     for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == "Unit is ready"
+        assert unit.workload_status_message == "Unit is Ready"

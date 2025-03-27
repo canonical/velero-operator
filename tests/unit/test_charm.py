@@ -51,9 +51,7 @@ def test_invalid_image_config(image_key):
     state_out = ctx.run(ctx.on.install(), testing.State(config={image_key: ""}))
 
     # Assert
-    assert state_out.unit_status == testing.BlockedStatus(
-        f"The config '{image_key}' cannot be empty"
-    )
+    assert state_out.unit_status == testing.BlockedStatus(f"Invalid configuration: {image_key}")
 
 
 @pytest.mark.parametrize(
@@ -78,7 +76,7 @@ def test_charm_k8s_access_failed(mock_lightkube_client, code, expected_status):
 
     ctx = testing.Context(VeleroOperatorCharm)
 
-    # Act:
+    # Act
     state_out = ctx.run(ctx.on.install(), testing.State())
 
     # Assert
@@ -152,7 +150,7 @@ def test_on_install_error(mock_velero, mock_lightkube_client):
     mock_velero.install.side_effect = VeleroError("Failed to install Velero")
     ctx = testing.Context(VeleroOperatorCharm)
 
-    # Act
+    # Act and Assert
     with pytest.raises(RuntimeError):
         ctx.run(ctx.on.install(), testing.State())
 
@@ -171,9 +169,15 @@ def test_on_install_error(mock_velero, mock_lightkube_client):
 def test_log_and_set_status(
     logger, status, message, expected_log_level, expect_exception, mock_lightkube_client
 ):
+    """Test that _log_and_set_status logs the status message with the correct log level."""
+    # Arrange
     ctx = testing.Context(VeleroOperatorCharm)
 
+    # Act
     with ctx(ctx.on.start(), testing.State()) as manager:
+        # Assert
+        manager.run()
+
         if expect_exception:
             with pytest.raises(ValueError, match="Unknown status type"):
                 manager.charm._log_and_set_status(status)
@@ -181,5 +185,3 @@ def test_log_and_set_status(
             manager.charm._log_and_set_status(status)
             log_method = getattr(logger, expected_log_level)
             log_method.assert_called_once_with(message)
-
-        manager.run()
