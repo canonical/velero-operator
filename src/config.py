@@ -3,20 +3,13 @@
 
 """Configuration for the charm."""
 
-from pydantic import BaseModel, field_validator
+from charms.data_platform_libs.v0.data_models import BaseConfigModel
+from pydantic import field_validator
 
 VELERO_IMAGE_CONFIG_KEY = "velero-image"
 VELERO_AWS_PLUGIN_CONFIG_KEY = "velero-aws-plugin-image"
 VELERO_AZURE_PLUGIN_CONFIG_KEY = "velero-azure-plugin-image"
 USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
-
-
-class BaseConfigModel(BaseModel):
-    """Class to be used for defining the structured configuration options."""
-
-    def __getitem__(self, x):
-        """Return the item using the notation instance[key]."""
-        return getattr(self, x.replace("-", "_"))
 
 
 class CharmConfig(BaseConfigModel):

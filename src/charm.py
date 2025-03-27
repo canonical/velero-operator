@@ -5,12 +5,13 @@
 """The Velero Charm."""
 
 import logging
-from typing import Generic, Type, TypeVar, Union
+from typing import Union
 
 import ops
+from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from lightkube import ApiError, Client
 from lightkube.resources.rbac_authorization_v1 import ClusterRole
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from config import (
     USE_NODE_AGENT_CONFIG_KEY,
@@ -21,19 +22,6 @@ from constants import VELERO_BINARY_PATH
 from velero import Velero, VeleroError
 
 logger = logging.getLogger(__name__)
-T = TypeVar("T", bound=BaseModel)
-
-
-class TypedCharmBase(ops.CharmBase, Generic[T]):
-    """Class to be used for extending config-typed charms."""
-
-    config_type: Type[T]
-
-    @property
-    def config(self) -> T:  # type: ignore
-        """Return a config instance validated and parsed using the provided pydantic class."""
-        translated_keys = {k.replace("-", "_"): v for k, v in self.model.config.items()}
-        return self.config_type(**translated_keys)
 
 
 class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
