@@ -56,7 +56,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             return
 
         self.framework.observe(self.on.install, self._on_install)
-        self.framework.observe(self.on.collect_unit_status, self._on_update_status)
+        self.framework.observe(self.on.update_status, self._on_update_status)
 
     # PROPERTIES
 
@@ -89,6 +89,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             raise RuntimeError(
                 "Failed to install Velero on the cluster. See juju debug-log for details."
             ) from ve
+
+        self._on_update_status(event)
 
     def _on_update_status(self, event: ops.EventBase) -> None:
         """Handle the update-status event."""
@@ -153,10 +155,10 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         """Check if the app is trusted. Ie deployed with --trust flag.
 
         Raises:
-            VelueError: If the app is not trusted
+            ValueError: If the app is not trusted
         """
         try:
-            self.lightkube_client.list(ClusterRole)
+            list(self.lightkube_client.list(ClusterRole))
         except ApiError as ae:
             if ae.status.code == 403:
                 raise ValueError(

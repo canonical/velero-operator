@@ -149,7 +149,7 @@ class Velero:
                     )
             except ApiError as err:
                 logger.error("Failed to confirm the Velero Deployment readiness: %s", err)
-                raise VeleroError from err
+                raise VeleroError(str(err)) from err
 
             attempts += 1
             time.sleep(K8S_CHECK_DELAY)
@@ -211,7 +211,7 @@ class Velero:
 
             except ApiError as err:
                 logger.error("Failed to confirm the Velero DaemonSet readiness: %s", err)
-                raise VeleroError from err
+                raise VeleroError(str(err)) from err
 
             attempts += 1
             time.sleep(K8S_CHECK_DELAY)
