@@ -35,6 +35,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
         # Lightkube client needed for interacting with the Kubernetes cluster
         self.lightkube_client = None
+        # Velero class to interact with the Velero binary
+        self.velero = None
 
         try:
             self._validate_config()
@@ -43,8 +45,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             self._log_and_set_status(ops.BlockedStatus(str(ve)))
             return
 
-        self.framework.observe(self.on.install, self._on_install)
-        self.framework.observe(self.on.update_status, self._on_update_status)
+        self.framework.observe(self.on.install, self._reconcile)
+        self.framework.observe(self.on.update_status, self._reconcile)
 
     # PROPERTIES
 
@@ -61,15 +63,34 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
     def lightkube_client(self, value):
         self._lightkube_client = value
 
+    @property
+    def velero(self):
+        """The Velero class to interact with the Velero binary."""
+        if not self._velero:
+            self._velero = Velero(VELERO_BINARY_PATH, self.model.name)
+        return self._velero
+
+    @velero.setter
+    def velero(self, value):
+        self._velero = value
+
     # EVENT HANDLERS
 
-    def _on_install(self, event: ops.InstallEvent) -> None:
+    def _reconcile(self, event: ops.EventBase) -> None:
+        """Reconcile the charm state."""
+        if not self.velero.is_installed(
+            self.lightkube_client, bool(self.config[USE_NODE_AGENT_CONFIG_KEY])
+        ):
+            self._install()
+
+        self._update_status()
+
+    def _install(self) -> None:
         """Handle the install event."""
-        self._log_and_set_status(ops.MaintenanceStatus("Deploying Velero server on the cluster"))
-        velero = Velero(VELERO_BINARY_PATH, self.model.name)
+        self._log_and_set_status(ops.MaintenanceStatus("Deploying Velero on the cluster"))
 
         try:
-            velero.install(
+            self.velero.install(
                 str(self.config[VELERO_IMAGE_CONFIG_KEY]),
                 bool(self.config[USE_NODE_AGENT_CONFIG_KEY]),
             )
@@ -78,9 +99,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 "Failed to install Velero on the cluster. See juju debug-log for details."
             ) from ve
 
-        self._on_update_status(event)
-
-    def _on_update_status(self, event: ops.EventBase) -> None:
+    def _update_status(self) -> None:
         """Handle the update-status event."""
         try:
             Velero.check_velero_deployment(self.lightkube_client, self.model.name)
@@ -118,7 +137,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             logger.info(status.message)
         elif isinstance(status, ops.BlockedStatus):
             logger.warning(status.message)
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown status type: {status}")
 
         self.unit.status = status

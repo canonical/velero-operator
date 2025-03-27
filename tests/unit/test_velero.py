@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 from lightkube import ApiError
+from lightkube.resources.apps_v1 import DaemonSet
 
 from velero import Velero, VeleroError
 
@@ -65,6 +66,15 @@ def mock_lightkube_client():
 def velero():
     """Return a Velero instance."""
     return Velero(velero_binary_path=VELERO_BINARY, namespace=NAMESPACE)
+
+
+def test_velero_correct_cluster_role_binding_name():
+    """Check the correct cluster role binding name is returned."""
+    velero_1 = Velero(velero_binary_path=VELERO_BINARY, namespace=NAMESPACE)
+    assert velero_1._velero_cluster_role_binding_name == "velero-test-namespace"
+
+    velero_2 = Velero(velero_binary_path=VELERO_BINARY, namespace="velero")
+    assert velero_2._velero_cluster_role_binding_name == "velero"
 
 
 def test_velero_install(mock_check_call, velero):
@@ -198,3 +208,36 @@ def test_check_velero_node_agent_api_error(mock_lightkube_client):
     with pytest.raises(VeleroError) as ve:
         Velero.check_velero_node_agent(mock_lightkube_client, "velero")
     assert str(ve.value) == "not found"
+
+
+def test_is_installed_all_resources_present(mock_lightkube_client, velero):
+    """Check is_installed returns True when all resources are present."""
+    mock_lightkube_client.get.return_value = MagicMock()
+
+    assert velero.is_installed(mock_lightkube_client, use_node_agent=True) is True
+
+
+def test_is_installed_missing_daemonset(mock_lightkube_client, velero):
+    """Check is_installed returns False when the DaemonSet is missing."""
+
+    def mock_get(resource_type, name, namespace=None):
+        if resource_type is DaemonSet:
+            mock_response = MagicMock(spec=httpx.Response)
+            mock_response.json.return_value = {"code": 404, "message": "not found"}
+            raise ApiError(request=MagicMock(), response=mock_response)
+        return MagicMock()
+
+    mock_lightkube_client.get.side_effect = mock_get
+    assert velero.is_installed(mock_lightkube_client, use_node_agent=True) is False
+
+
+def test_is_installed_ignore_daemonset_if_flag_false(mock_lightkube_client, velero):
+    """Check is_installed ignores the DaemonSet when use_node_agent is False."""
+
+    def mock_get(resource_type, name, namespace=None):
+        if resource_type is DaemonSet:
+            raise AssertionError("DaemonSet should not be accessed with use_node_agent=False")
+        return MagicMock()
+
+    mock_lightkube_client.get.side_effect = mock_get
+    assert velero.is_installed(mock_lightkube_client, use_node_agent=False) is True

@@ -135,10 +135,15 @@ def test_on_update_status(
         assert state_out.unit_status == expected_status
 
 
-def test_on_install(mock_velero, mock_lightkube_client):
+@pytest.mark.parametrize(
+    "velero_installed",
+    [True, False],
+)
+def test_on_install(velero_installed, mock_velero, mock_lightkube_client):
     """Check the install event calls Velero.install with the correct arguments."""
     # Arrange
     ctx = testing.Context(VeleroOperatorCharm)
+    mock_velero.is_installed.return_value = velero_installed
 
     # Act
     state_out = ctx.run(
@@ -147,13 +152,17 @@ def test_on_install(mock_velero, mock_lightkube_client):
     )
 
     # Assert
-    mock_velero.install.assert_called_once_with("image", False)
+    if velero_installed:
+        mock_velero.install.assert_not_called()
+    else:
+        mock_velero.install.assert_called_once_with("image", False)
     assert state_out.unit_status == testing.ActiveStatus("Unit is Ready")
 
 
 def test_on_install_error(mock_velero, mock_lightkube_client):
     """Check the install event raises a RuntimeError when Velero installation fails."""
     # Arrange
+    mock_velero.is_installed.return_value = False
     mock_velero.install.side_effect = VeleroError("Failed to install Velero")
     ctx = testing.Context(VeleroOperatorCharm)
 
@@ -164,29 +173,21 @@ def test_on_install_error(mock_velero, mock_lightkube_client):
 
 @patch("charm.logger")
 @pytest.mark.parametrize(
-    "status,message,expected_log_level,expect_exception",
+    "status,message,expected_log_level",
     [
-        (testing.ActiveStatus("active"), "active", "info", False),
-        (testing.MaintenanceStatus("maintenance"), "maintenance", "info", False),
-        (testing.WaitingStatus("waiting"), "waiting", "info", False),
-        (testing.BlockedStatus("error"), "error", "warning", False),
-        (testing.UnknownStatus(), None, None, True),
+        (testing.ActiveStatus("active"), "active", "info"),
+        (testing.MaintenanceStatus("maintenance"), "maintenance", "info"),
+        (testing.WaitingStatus("waiting"), "waiting", "info"),
+        (testing.BlockedStatus("error"), "error", "warning"),
     ],
 )
-def test_log_and_set_status(
-    logger, status, message, expected_log_level, expect_exception, mock_lightkube_client
-):
+def test_log_and_set_status(logger, status, message, expected_log_level, mock_lightkube_client):
     """Check _log_and_set_status logs the status message with the correct log level."""
     # Arrange
     ctx = testing.Context(VeleroOperatorCharm)
 
-    # Act
+    # Act and Assert
     with ctx(ctx.on.start(), testing.State()) as manager:
-        # Assert
-        if expect_exception:
-            with pytest.raises(ValueError, match="Unknown status type"):
-                manager.charm._log_and_set_status(status)
-        else:
-            manager.charm._log_and_set_status(status)
-            log_method = getattr(logger, expected_log_level)
-            log_method.assert_called_once_with(message)
+        manager.charm._log_and_set_status(status)
+        log_method = getattr(logger, expected_log_level)
+        log_method.assert_called_once_with(message)

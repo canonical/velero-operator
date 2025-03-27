@@ -5,11 +5,16 @@
 
 import logging
 import subprocess
+from dataclasses import dataclass
+from typing import Type, Union
 
 from lightkube import Client
 from lightkube.core.exceptions import ApiError
+from lightkube.core.resource import GlobalResource, NamespacedResource
 from lightkube.models.apps_v1 import DeploymentCondition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
+from lightkube.resources.core_v1 import Secret, ServiceAccount
+from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
 from tenacity import (
     Retrying,
     retry_if_exception_type,
@@ -22,11 +27,22 @@ from constants import (
     K8S_CHECK_ATTEMPTS,
     K8S_CHECK_DELAY,
     K8S_CHECK_OBSERVATIONS,
+    VELERO_CLUSTER_ROLE_BINDING_NAME,
     VELERO_DEPLOYMENT_NAME,
     VELERO_NODE_AGENT_NAME,
+    VELERO_SECRET_NAME,
+    VELERO_SERVICE_ACCOUNT_NAME,
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class VeleroResource:
+    """Velero Kubernetes resource."""
+
+    name: str
+    type: Type[Union[NamespacedResource, GlobalResource]]
 
 
 class VeleroError(Exception):
@@ -45,10 +61,16 @@ class Velero:
         Args:
             velero_binary_path: The path to the Velero binary.
             namespace: The namespace where Velero is installed.
-            velero_image: The Velero image to use.
         """
         self._velero_binary_path = velero_binary_path
         self._namespace = namespace
+        self._core_resources = [
+            VeleroResource(VELERO_DEPLOYMENT_NAME, Deployment),
+            VeleroResource(VELERO_NODE_AGENT_NAME, DaemonSet),
+            VeleroResource(VELERO_SECRET_NAME, Secret),
+            VeleroResource(VELERO_SERVICE_ACCOUNT_NAME, ServiceAccount),
+            VeleroResource(self._velero_cluster_role_binding_name, ClusterRoleBinding),
+        ]
 
     @property
     def _velero_install_flags(self) -> list:
@@ -59,6 +81,37 @@ class Velero:
             "--no-secret",
             "--use-volume-snapshots=false",
         ]
+
+    @property
+    def _velero_cluster_role_binding_name(self) -> str:
+        """Return the Velero ClusterRoleBinding name."""
+        postfix = f"-{self._namespace}" if self._namespace != "velero" else ""
+        return VELERO_CLUSTER_ROLE_BINDING_NAME + postfix
+
+    def is_installed(self, kube_client: Client, use_node_agent: bool) -> bool:
+        """Check if Velero is installed in the Kubernetes cluster.
+
+        Args:
+            kube_client: The lightkube client used to interact with the cluster.
+            namespace: The namespace where Velero is installed.
+            use_node_agent: Whether to use the Velero node agent (DaemonSet).
+
+        Returns:
+            bool: True if Velero is installed, False otherwise.
+        """
+        for resource in self._core_resources:
+            if not use_node_agent and resource.type is DaemonSet:
+                continue
+            try:
+                if issubclass(resource.type, NamespacedResource):
+                    kube_client.get(resource.type, name=resource.name, namespace=self._namespace)
+                elif issubclass(resource.type, GlobalResource):
+                    kube_client.get(resource.type, name=resource.name)
+                else:  # pragma: no cover
+                    raise ValueError(f"Unknown resource type: {resource.type}")
+            except ApiError:
+                return False
+        return True
 
     def install(self, velero_image: str, use_node_agent: bool) -> None:
         """Install Velero in the Kubernetes cluster.
