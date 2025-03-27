@@ -85,14 +85,14 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         try:
             Velero.check_velero_deployment(self.lightkube_client, self.model.name)
         except VeleroError as ve:
-            self._log_and_set_status(ops.BlockedStatus(f"Deployment is not ready: {ve}"))
+            self._log_and_set_status(ops.BlockedStatus(f"Velero Deployment is not ready: {ve}"))
             return
 
         if self.config[USE_NODE_AGENT_CONFIG_KEY]:
             try:
                 Velero.check_velero_node_agent(self.lightkube_client, self.model.name)
             except VeleroError as ve:
-                self._log_and_set_status(ops.BlockedStatus(f"NodeAgent is not ready: {ve}"))
+                self._log_and_set_status(ops.BlockedStatus(f"Velero NodeAgent is not ready: {ve}"))
                 return
 
         self._log_and_set_status(ops.ActiveStatus("Unit is Ready"))

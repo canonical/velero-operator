@@ -43,7 +43,7 @@ def mock_velero():
     ],
 )
 def test_invalid_image_config(image_key):
-    """Test that setting an empty value for the image configs the status to Blocked."""
+    """Check setting an empty value for the image configs the status to Blocked."""
     # Arrange
     ctx = testing.Context(VeleroOperatorCharm)
 
@@ -72,7 +72,7 @@ def test_invalid_image_config(image_key):
     ],
 )
 def test_charm_k8s_access_failed(mock_lightkube_client, code, expected_status):
-    """Test that the charm status is set to Blocked if the charm cannot access the K8s API."""
+    """Check the charm status is set to Blocked if the charm cannot access the K8s API."""
     # Arrange
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.json.return_value = {"code": code}
@@ -94,9 +94,9 @@ def test_charm_k8s_access_failed(mock_lightkube_client, code, expected_status):
     "deployment_ok, nodeagent_ok, storage_attached, expected_status, use_node_agent_config",
     [
         # Deployment not ready
-        (False, True, True, testing.BlockedStatus("Deployment is not ready: reason"), True),
+        (False, True, True, testing.BlockedStatus("Velero Deployment is not ready: reason"), True),
         # NodeAgent not ready
-        (True, False, True, testing.BlockedStatus("NodeAgent is not ready: reason"), True),
+        (True, False, True, testing.BlockedStatus("Velero NodeAgent is not ready: reason"), True),
         # All good
         (True, True, True, testing.ActiveStatus("Unit is Ready"), True),
         # All good
@@ -113,7 +113,7 @@ def test_on_update_status(
     expected_status,
     use_node_agent_config,
 ):
-    """Test that the charm status is set correctly based on the deployment and nodeagent status."""
+    """Check the charm status is set correctly based on the deployment and nodeagent status."""
     # Arrange
     if not deployment_ok:
         check_velero_deployment.side_effect = VeleroError("reason")
@@ -136,7 +136,7 @@ def test_on_update_status(
 
 
 def test_on_install(mock_velero, mock_lightkube_client):
-    """Test that the install event calls Velero.install with the correct arguments."""
+    """Check the install event calls Velero.install with the correct arguments."""
     # Arrange
     ctx = testing.Context(VeleroOperatorCharm)
 
@@ -152,7 +152,7 @@ def test_on_install(mock_velero, mock_lightkube_client):
 
 
 def test_on_install_error(mock_velero, mock_lightkube_client):
-    """Test that the install event raises a RuntimeError when Velero installation fails."""
+    """Check the install event raises a RuntimeError when Velero installation fails."""
     # Arrange
     mock_velero.install.side_effect = VeleroError("Failed to install Velero")
     ctx = testing.Context(VeleroOperatorCharm)
@@ -176,7 +176,7 @@ def test_on_install_error(mock_velero, mock_lightkube_client):
 def test_log_and_set_status(
     logger, status, message, expected_log_level, expect_exception, mock_lightkube_client
 ):
-    """Test that _log_and_set_status logs the status message with the correct log level."""
+    """Check _log_and_set_status logs the status message with the correct log level."""
     # Arrange
     ctx = testing.Context(VeleroOperatorCharm)
 

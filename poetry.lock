@@ -2537,7 +2537,7 @@ version = "9.0.0"
 description = "Retry code until it succeeds"
 optional = false
 python-versions = ">=3.8"
-groups = ["integration"]
+groups = ["main", "integration"]
 files = [
     {file = "tenacity-9.0.0-py3-none-any.whl", hash = "sha256:93de0c98785b27fcf659856aa9f54bfbd399e29969b0621bc7f762bd441b4539"},
     {file = "tenacity-9.0.0.tar.gz", hash = "sha256:807f37ca97d62aa361264d497b0e31e92b8027044942bfa756160d908320d73b"},
@@ -2978,4 +2978,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "7a33c6781f18d5a8d865fff010e1eb34b315218dcdf58cfe63e36a14f7de7131"
+content-hash = "412f94df93f05ec95ff525163244558c90f2507aa7e39db7555381c5646f47c5"
