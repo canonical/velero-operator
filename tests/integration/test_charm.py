@@ -17,6 +17,11 @@ USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
 
+UNTRUST_ERROR_MESSAGE = (
+    "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
+)
+READY_MESSAGE = "Unit is Ready"
+
 
 def get_model(ops_test: OpsTest) -> Model:
     """Return the Juju model of the current test.
@@ -34,22 +39,35 @@ def get_model(ops_test: OpsTest) -> Model:
 
 
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy(ops_test: OpsTest):
+async def test_build_and_deploy_without_trust(ops_test: OpsTest):
     """Build the charm-under-test and deploy it together with related charms.
 
-    Assert on the unit status before any relations/configurations take place.
+    Assert on the unit status being blocked due to lack of trust.
     """
-    # Build and deploy charm from local source folder
     charm = await ops_test.build_charm(".")
 
-    # Deploy the charm and wait for blocked/idle status
     model = get_model(ops_test)
     await asyncio.gather(
         model.deploy(
-            charm, application_name=APP_NAME, trust=True, config={"use-node-agent": True}
+            charm, application_name=APP_NAME, trust=False, config={"use-node-agent": True}
         ),
-        model.wait_for_idle(apps=[APP_NAME], status="active", timeout=60 * 20),
+        model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=60 * 20),
     )
 
     for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == "Unit is Ready"
+        assert unit.workload_status_message == UNTRUST_ERROR_MESSAGE
+
+
+@pytest.mark.abort_on_fail
+async def test_trust_blocked_deployment(ops_test: OpsTest):
+    """Trust existing blocked deployment.
+
+    Assert on the application status recovering to active.
+    """
+    await ops_test.juju("trust", APP_NAME, "--scope=cluster")
+    model = get_model(ops_test)
+
+    await model.wait_for_idle(apps=[APP_NAME], status="active", timeout=60 * 20)
+
+    for unit in model.applications[APP_NAME].units:
+        assert unit.workload_status_message == READY_MESSAGE
