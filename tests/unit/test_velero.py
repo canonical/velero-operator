@@ -145,7 +145,7 @@ def test_check_velero_deployment_api_error(mock_lightkube_client):
     api_error = ApiError(request=MagicMock(), response=mock_response)
     mock_lightkube_client.get.side_effect = api_error
 
-    with pytest.raises(VeleroError) as ve:
+    with pytest.raises(ApiError) as ve:
         Velero.check_velero_deployment(mock_lightkube_client, "velero")
     assert str(ve.value) == "not found"
 
@@ -190,7 +190,7 @@ def test_check_velero_node_agent_api_error(mock_lightkube_client):
     api_error = ApiError(request=MagicMock(), response=mock_response)
     mock_lightkube_client.get.side_effect = api_error
 
-    with pytest.raises(VeleroError) as ve:
+    with pytest.raises(ApiError) as ve:
         Velero.check_velero_node_agent(mock_lightkube_client, "velero")
     assert str(ve.value) == "not found"
 

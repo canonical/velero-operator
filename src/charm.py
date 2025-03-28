@@ -20,6 +20,18 @@ from velero import Velero, VeleroError
 logger = logging.getLogger(__name__)
 
 
+class CharmPermissionError(PermissionError):
+    """Raised when the charm does not have permission to perform an action."""
+
+    pass
+
+
+class CharmConfigError(Exception):
+    """Raised when charm config is invalid."""
+
+    pass
+
+
 class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
     """Charm the service."""
 
@@ -36,9 +48,16 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
         try:
             self._validate_config()
-            self._is_trusted()
-        except ValueError as ve:
+            self._check_is_trusted()
+        except (CharmConfigError, CharmPermissionError) as ve:
             self._log_and_set_status(ops.BlockedStatus(str(ve)))
+            return
+        except ApiError:
+            self._log_and_set_status(
+                ops.BlockedStatus(
+                    "Failed to check if charm can access K8s API, check logs for details"
+                )
+            )
             return
 
         self.framework.observe(self.on.install, self._reconcile)
@@ -104,14 +123,14 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         """Handle the update-status event."""
         try:
             Velero.check_velero_deployment(self.lightkube_client, self.model.name)
-        except VeleroError as ve:
+        except (VeleroError, ApiError) as ve:
             self._log_and_set_status(ops.BlockedStatus(f"Velero Deployment is not ready: {ve}"))
             return
 
         if self.config.use_node_agent:
             try:
                 Velero.check_velero_node_agent(self.lightkube_client, self.model.name)
-            except VeleroError as ve:
+            except (VeleroError, ApiError) as ve:
                 self._log_and_set_status(ops.BlockedStatus(f"Velero NodeAgent is not ready: {ve}"))
                 return
 
@@ -147,7 +166,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         """Check the charm configs and raise error if they are not correct.
 
         Raises:
-            ValueError: If any of the charm configs is not correct
+            CharmConfigError: If any of the charm configs is not correct
         """
         try:
             _ = self.config
@@ -157,26 +176,24 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 field = ".".join(str(p).replace("_", "-") for p in err["loc"])
                 fields.append(field)
             error_details = ", ".join(fields)
-            raise ValueError(f"Invalid configuration: {error_details}")
+            raise CharmConfigError(f"Invalid configuration: {error_details}")
 
-    def _is_trusted(self) -> None:
+    def _check_is_trusted(self) -> None:
         """Check if the app is trusted. Ie deployed with --trust flag.
 
         Raises:
-            ValueError: If the app is not trusted
+            CharmPermissionError: If the app is not trusted
+            ApiError: If the charm cannot access the K8s API
         """
         try:
             list(self.lightkube_client.list(ClusterRole))
         except ApiError as ae:
             if ae.status.code == 403:
-                raise ValueError(
+                raise CharmPermissionError(
                     "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
                 )
-            else:
-                logger.error(f"Failed to check if the app is trusted: {ae}")
-                raise ValueError(
-                    "Failed to check if charm can access K8s API, check logs for details"
-                )
+            logger.error(f"Failed to check if the app is trusted: {ae}")
+            raise ae
 
 
 if __name__ == "__main__":  # pragma: nocover

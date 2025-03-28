@@ -196,16 +196,12 @@ class Velero:
             wait=wait_fixed(K8S_CHECK_DELAY),
             retry=(
                 retry_if_result(lambda obs: obs < K8S_CHECK_OBSERVATIONS)
-                | retry_if_exception_type(VeleroError)
+                | retry_if_exception_type((VeleroError, ApiError))
             ),
             reraise=True,
         ):
             with attempt:
-                try:
-                    deployment = kube_client.get(Deployment, name=name, namespace=namespace)
-                except ApiError as ae:
-                    raise VeleroError(str(ae)) from ae
-
+                deployment = kube_client.get(Deployment, name=name, namespace=namespace)
                 availability = Velero.get_deployment_availability(deployment)
 
                 if availability.status != "True":
@@ -236,15 +232,12 @@ class Velero:
             wait=wait_fixed(K8S_CHECK_DELAY),
             retry=(
                 retry_if_result(lambda obs: obs < K8S_CHECK_OBSERVATIONS)
-                | retry_if_exception_type(VeleroError)
+                | retry_if_exception_type((VeleroError, ApiError))
             ),
             reraise=True,
         ):
             with attempt:
-                try:
-                    daemonset = kube_client.get(DaemonSet, name=name, namespace=namespace)
-                except ApiError as ae:
-                    raise VeleroError(str(ae)) from ae
+                daemonset = kube_client.get(DaemonSet, name=name, namespace=namespace)
                 status = daemonset.status
 
                 if not status:
