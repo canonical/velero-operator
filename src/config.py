@@ -6,11 +6,6 @@
 from charms.data_platform_libs.v0.data_models import BaseConfigModel
 from pydantic import field_validator
 
-VELERO_IMAGE_CONFIG_KEY = "velero-image"
-VELERO_AWS_PLUGIN_CONFIG_KEY = "velero-aws-plugin-image"
-VELERO_AZURE_PLUGIN_CONFIG_KEY = "velero-azure-plugin-image"
-USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
-
 
 class CharmConfig(BaseConfigModel):
     """Manager for the structured configuration."""

@@ -21,39 +21,20 @@ VELERO_EXPECTED_FLAGS = [
 
 
 @pytest.fixture(autouse=True)
-def mock_check_call():
-    """Mock subprocess.check_call to return 0."""
-    with patch("subprocess.check_call") as mock_check_call:
-        mock_check_call.return_value = 0
-        yield mock_check_call
-
-
-@pytest.fixture(autouse=True)
-def mock_check_output():
+def mock_run():
     """Mock subprocess.check_output to return a string."""
-    with patch("subprocess.check_output") as mock_check_output:
-        mock_check_output.return_value = "stdout"
-        yield mock_check_output
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = "stdout"
+        yield mock_run
 
 
 @pytest.fixture()
-def mock_check_call_failing(mock_check_call):
-    """Mock a subprocess.check_call that fails."""
+def mock_run_failing(mock_run):
+    """Mock subprocess.check_run to raise a CalledProcessError."""
     cpe = CalledProcessError(cmd="", returncode=1, stderr="stderr", output="stdout")
-    mock_check_call.return_value = None
-    mock_check_call.side_effect = cpe
-
-    yield mock_check_call
-
-
-@pytest.fixture()
-def mock_check_output_failing(mock_check_output):
-    """Mock subprocess.check_output to raise a CalledProcessError."""
-    cpe = CalledProcessError(cmd="", returncode=1, stderr="stderr", output="stdout")
-    mock_check_output.return_value = None
-    mock_check_output.side_effect = cpe
-
-    yield mock_check_output
+    mock_run.return_value = None
+    mock_run.side_effect = cpe
+    yield mock_run
 
 
 @pytest.fixture()
@@ -68,34 +49,38 @@ def velero():
     return Velero(velero_binary_path=VELERO_BINARY, namespace=NAMESPACE)
 
 
-def test_velero_correct_cluster_role_binding_name():
+def test_velero_correct_crb_name():
     """Check the correct cluster role binding name is returned."""
     velero_1 = Velero(velero_binary_path=VELERO_BINARY, namespace=NAMESPACE)
-    assert velero_1._velero_cluster_role_binding_name == "velero-test-namespace"
+    assert velero_1._velero_crb_name == "velero-test-namespace"
 
     velero_2 = Velero(velero_binary_path=VELERO_BINARY, namespace="velero")
-    assert velero_2._velero_cluster_role_binding_name == "velero"
+    assert velero_2._velero_crb_name == "velero"
 
 
-def test_velero_install(mock_check_call, velero):
+@pytest.mark.parametrize(
+    "use_node_agent",
+    [True, False],
+)
+def test_velero_install(use_node_agent, mock_run, velero):
     """Check velero.install calls the binary successfully with the expected arguments."""
-    velero.install(VELERO_IMAGE, False)
+    velero.install(VELERO_IMAGE, use_node_agent)
 
     expected_call_args = [VELERO_BINARY, "install"]
     expected_call_args.extend(VELERO_EXPECTED_FLAGS)
-    expected_call_args.append("--use-node-agent=False")
-    mock_check_call.assert_called_once_with(expected_call_args)
-
-    velero.install(VELERO_IMAGE, True)
-
-    expected_call_args[-1] = "--use-node-agent=True"
-    mock_check_call.assert_called_with(expected_call_args)
+    expected_call_args.append(f"--use-node-agent={use_node_agent}")
+    mock_run.assert_called_once_with(
+        expected_call_args, check=True, capture_output=True, text=True
+    )
 
 
-def test_velero_install_failed(mock_check_call_failing, velero):
+def test_velero_install_failed(caplog, mock_run_failing, velero):
     """Check velero.install raises a VeleroError when the subprocess call fails."""
     with pytest.raises(VeleroError):
         velero.install(VELERO_IMAGE, False)
+    assert "'velero install' command returned non-zero exit code: 1." in caplog.text
+    assert "stdout: stdout" in caplog.text
+    assert "stderr: stderr" in caplog.text
 
 
 def test_check_velero_deployment_success(mock_lightkube_client):
@@ -231,7 +216,7 @@ def test_is_installed_missing_daemonset(mock_lightkube_client, velero):
     assert velero.is_installed(mock_lightkube_client, use_node_agent=True) is False
 
 
-def test_is_installed_ignore_daemonset_if_flag_false(mock_lightkube_client, velero):
+def test_is_installed_ignore_daemonset(mock_lightkube_client, velero):
     """Check is_installed ignores the DaemonSet when use_node_agent is False."""
 
     def mock_get(resource_type, name, namespace=None):

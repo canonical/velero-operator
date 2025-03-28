@@ -11,10 +11,9 @@ import yaml
 from juju.model import Model
 from pytest_operator.plugin import OpsTest
 
-from config import USE_NODE_AGENT_CONFIG_KEY
-
 logger = logging.getLogger(__name__)
 
+USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
 
@@ -47,7 +46,7 @@ async def test_build_and_deploy(ops_test: OpsTest):
     model = get_model(ops_test)
     await asyncio.gather(
         model.deploy(
-            charm, application_name=APP_NAME, trust=True, config={USE_NODE_AGENT_CONFIG_KEY: True}
+            charm, application_name=APP_NAME, trust=True, config={"use-node-agent": True}
         ),
         model.wait_for_idle(apps=[APP_NAME], status="active", timeout=60 * 20),
     )

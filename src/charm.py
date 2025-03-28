@@ -13,11 +13,7 @@ from lightkube import ApiError, Client
 from lightkube.resources.rbac_authorization_v1 import ClusterRole
 from pydantic import ValidationError
 
-from config import (
-    USE_NODE_AGENT_CONFIG_KEY,
-    VELERO_IMAGE_CONFIG_KEY,
-    CharmConfig,
-)
+from config import CharmConfig
 from constants import VELERO_BINARY_PATH
 from velero import Velero, VeleroError
 
@@ -78,26 +74,31 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
     def _reconcile(self, event: ops.EventBase) -> None:
         """Reconcile the charm state."""
-        if not self.velero.is_installed(
-            self.lightkube_client, bool(self.config[USE_NODE_AGENT_CONFIG_KEY])
-        ):
-            self._install()
+        if not self.velero.is_installed(self.lightkube_client, self.config.use_node_agent):
+            try:
+                self._install()
+            except VeleroError:
+                self._log_and_set_status(
+                    ops.BlockedStatus(
+                        "Failed to install Velero on the cluster. See juju debug-log for details."
+                    )
+                )
+                return
 
         self._update_status()
 
     def _install(self) -> None:
-        """Handle the install event."""
+        """Handle the install event.
+
+        Raises:
+            VeleroError: If the installation of Velero fails
+        """
         self._log_and_set_status(ops.MaintenanceStatus("Deploying Velero on the cluster"))
 
-        try:
-            self.velero.install(
-                str(self.config[VELERO_IMAGE_CONFIG_KEY]),
-                bool(self.config[USE_NODE_AGENT_CONFIG_KEY]),
-            )
-        except VeleroError as ve:
-            raise RuntimeError(
-                "Failed to install Velero on the cluster. See juju debug-log for details."
-            ) from ve
+        self.velero.install(
+            self.config.velero_image,
+            self.config.use_node_agent,
+        )
 
     def _update_status(self) -> None:
         """Handle the update-status event."""
@@ -107,7 +108,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             self._log_and_set_status(ops.BlockedStatus(f"Velero Deployment is not ready: {ve}"))
             return
 
-        if self.config[USE_NODE_AGENT_CONFIG_KEY]:
+        if self.config.use_node_agent:
             try:
                 Velero.check_velero_node_agent(self.lightkube_client, self.model.name)
             except VeleroError as ve:

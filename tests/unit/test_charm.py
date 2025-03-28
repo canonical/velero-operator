@@ -9,13 +9,12 @@ from lightkube.core.exceptions import ApiError
 from ops import testing
 
 from charm import VeleroOperatorCharm
-from config import (
-    USE_NODE_AGENT_CONFIG_KEY,
-    VELERO_AWS_PLUGIN_CONFIG_KEY,
-    VELERO_AZURE_PLUGIN_CONFIG_KEY,
-    VELERO_IMAGE_CONFIG_KEY,
-)
 from velero import VeleroError
+
+VELERO_IMAGE_CONFIG_KEY = "velero-image"
+VELERO_AZURE_PLUGIN_CONFIG_KEY = "velero-azure-plugin-image"
+USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
+VELERO_AWS_PLUGIN_CONFIG_KEY = "velero-aws-plugin-image"
 
 
 @pytest.fixture()
@@ -166,9 +165,13 @@ def test_on_install_error(mock_velero, mock_lightkube_client):
     mock_velero.install.side_effect = VeleroError("Failed to install Velero")
     ctx = testing.Context(VeleroOperatorCharm)
 
-    # Act and Assert
-    with pytest.raises(RuntimeError):
-        ctx.run(ctx.on.install(), testing.State())
+    # Act
+    state_out = ctx.run(ctx.on.install(), testing.State())
+
+    # Assert
+    assert state_out.unit_status == testing.BlockedStatus(
+        "Failed to install Velero on the cluster. See juju debug-log for details."
+    )
 
 
 @patch("charm.logger")

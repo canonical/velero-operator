@@ -69,7 +69,7 @@ class Velero:
             VeleroResource(VELERO_NODE_AGENT_NAME, DaemonSet),
             VeleroResource(VELERO_SECRET_NAME, Secret),
             VeleroResource(VELERO_SERVICE_ACCOUNT_NAME, ServiceAccount),
-            VeleroResource(self._velero_cluster_role_binding_name, ClusterRoleBinding),
+            VeleroResource(self._velero_crb_name, ClusterRoleBinding),
         ]
 
     @property
@@ -83,7 +83,7 @@ class Velero:
         ]
 
     @property
-    def _velero_cluster_role_binding_name(self) -> str:
+    def _velero_crb_name(self) -> str:
         """Return the Velero ClusterRoleBinding name."""
         postfix = f"-{self._namespace}" if self._namespace != "velero" else ""
         return VELERO_CLUSTER_ROLE_BINDING_NAME + postfix
@@ -110,7 +110,7 @@ class Velero:
                 else:  # pragma: no cover
                     raise ValueError(f"Unknown resource type: {resource.type}")
             except ApiError:
-                logger.warning(f"Resource %s '%s' not found", resource.type.__name__, resource.name)
+                logger.warning("Resource %s '%s' not found", resource.type.__name__, resource.name)
                 return False
         return True
 
@@ -129,14 +129,17 @@ class Velero:
         )
         try:
             logger.info(install_msg)
-            subprocess.check_call(
+            subprocess.run(
                 [
                     self._velero_binary_path,
                     "install",
                     f"--image={velero_image}",
                     *self._velero_install_flags,
                     f"--use-node-agent={use_node_agent}",
-                ]
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
             )
         except subprocess.CalledProcessError as cpe:
             error_msg = f"'velero install' command returned non-zero exit code: {cpe.returncode}."
