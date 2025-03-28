@@ -62,6 +62,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
         self.framework.observe(self.on.install, self._reconcile)
         self.framework.observe(self.on.update_status, self._reconcile)
+        self.framework.observe(self.on.remove, self._on_remove)
 
     # PROPERTIES
 
@@ -135,6 +136,12 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 return
 
         self._log_and_set_status(ops.ActiveStatus("Unit is Ready"))
+
+    def _on_remove(self, event: ops.RemoveEvent) -> None:
+        """Handle the remove event."""
+        self._log_and_set_status(ops.MaintenanceStatus("Removing Velero from the cluster"))
+
+        self.velero.remove(self.lightkube_client)
 
     # HELPER METHODS
 

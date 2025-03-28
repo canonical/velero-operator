@@ -4,9 +4,10 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 from lightkube import ApiError
-from lightkube.resources.apps_v1 import DaemonSet
+from lightkube.resources.apps_v1 import DaemonSet, Deployment
+from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
 
-from velero import Velero, VeleroError
+from velero import Velero, VeleroError, VeleroResource
 
 NAMESPACE = "test-namespace"
 VELERO_IMAGE = "velero/velero:latest"
@@ -226,3 +227,56 @@ def test_is_installed_ignore_daemonset(mock_lightkube_client, velero):
 
     mock_lightkube_client.get.side_effect = mock_get
     assert velero.is_installed(mock_lightkube_client, use_node_agent=False) is True
+
+
+def test_remove_success(mock_lightkube_client, velero):
+    """Tests that Velero.remove calls delete on the correct resources."""
+    velero._all_resources = [
+        VeleroResource(name="ns-resource", type=Deployment),
+        VeleroResource(name="global-resource", type=ClusterRoleBinding),
+    ]
+    velero.remove(mock_lightkube_client)
+
+    assert mock_lightkube_client.delete.call_count == 2
+    mock_lightkube_client.delete.assert_any_call(
+        Deployment, name="ns-resource", namespace=NAMESPACE
+    )
+    mock_lightkube_client.delete.assert_any_call(ClusterRoleBinding, name="global-resource")
+
+
+def test_remove_404_error(caplog, mock_lightkube_client, velero):
+    """Tests that Velero.remove handles a 404 error gracefully."""
+    velero._all_resources = [
+        VeleroResource(name="missing-resource", type=Deployment),
+    ]
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 404}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.delete.side_effect = api_error
+
+    velero.remove(mock_lightkube_client)
+
+    mock_lightkube_client.delete.assert_called_once_with(
+        Deployment, name="missing-resource", namespace=NAMESPACE
+    )
+    assert "Resource Deployment 'missing-resource' not found, skipping deletion" in caplog.text
+
+
+def test_remove_api_error(caplog, mock_lightkube_client, velero):
+    """Tests that Velero.remove handles an API error and logs the error."""
+    velero._all_resources = [
+        VeleroResource(name="error-resource", type=Deployment),
+    ]
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 500}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.delete.side_effect = api_error
+
+    velero.remove(mock_lightkube_client)
+
+    mock_lightkube_client.delete.assert_called_once_with(
+        Deployment, name="error-resource", namespace=NAMESPACE
+    )
+    assert "Failed to delete Deployment 'error-resource' resource:" in caplog.text

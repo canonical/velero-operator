@@ -6,11 +6,12 @@
 import logging
 import subprocess
 from dataclasses import dataclass
-from typing import Type, Union
+from typing import List, Type, Union
 
 from lightkube import Client
 from lightkube.core.exceptions import ApiError
 from lightkube.core.resource import GlobalResource, NamespacedResource
+from lightkube.generic_resource import create_namespaced_resource
 from lightkube.models.apps_v1 import DeploymentCondition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
 from lightkube.resources.core_v1 import Secret, ServiceAccount
@@ -27,11 +28,13 @@ from constants import (
     K8S_CHECK_ATTEMPTS,
     K8S_CHECK_DELAY,
     K8S_CHECK_OBSERVATIONS,
+    VELERO_BACKUP_LOCATION_NAME,
     VELERO_CLUSTER_ROLE_BINDING_NAME,
     VELERO_DEPLOYMENT_NAME,
     VELERO_NODE_AGENT_NAME,
     VELERO_SECRET_NAME,
     VELERO_SERVICE_ACCOUNT_NAME,
+    VELERO_VOLUME_SNAPSHOT_LOCATION_NAME,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,13 +67,10 @@ class Velero:
         """
         self._velero_binary_path = velero_binary_path
         self._namespace = namespace
-        self._core_resources = [
-            VeleroResource(VELERO_DEPLOYMENT_NAME, Deployment),
-            VeleroResource(VELERO_NODE_AGENT_NAME, DaemonSet),
-            VeleroResource(VELERO_SECRET_NAME, Secret),
-            VeleroResource(VELERO_SERVICE_ACCOUNT_NAME, ServiceAccount),
-            VeleroResource(self._velero_crb_name, ClusterRoleBinding),
-        ]
+        self._core_resources = self._get_core_resources()
+        self._all_resources = self._core_resources + self._get_storage_provider_resources()
+
+    # PROPERTIES
 
     @property
     def _velero_install_flags(self) -> list:
@@ -87,6 +87,35 @@ class Velero:
         """Return the Velero ClusterRoleBinding name."""
         postfix = f"-{self._namespace}" if self._namespace != "velero" else ""
         return VELERO_CLUSTER_ROLE_BINDING_NAME + postfix
+
+    # METHODS
+
+    def _get_core_resources(self) -> List[VeleroResource]:
+        """Return the core Velero resources."""
+        return [
+            VeleroResource(VELERO_DEPLOYMENT_NAME, Deployment),
+            VeleroResource(VELERO_NODE_AGENT_NAME, DaemonSet),
+            VeleroResource(VELERO_SECRET_NAME, Secret),
+            VeleroResource(VELERO_SERVICE_ACCOUNT_NAME, ServiceAccount),
+            VeleroResource(self._velero_crb_name, ClusterRoleBinding),
+        ]
+
+    def _get_storage_provider_resources(self) -> List[VeleroResource]:
+        """Return all Velero resources."""
+        return [
+            VeleroResource(
+                VELERO_BACKUP_LOCATION_NAME,
+                create_namespaced_resource(
+                    "velero.io", "v1", "BackupStorageLocation", "backupstoragelocations"
+                ),
+            ),
+            VeleroResource(
+                VELERO_VOLUME_SNAPSHOT_LOCATION_NAME,
+                create_namespaced_resource(
+                    "velero.io", "v1", "VolumeSnapshotLocation", "volumesnapshotlocations"
+                ),
+            ),
+        ]
 
     def is_installed(self, kube_client: Client, use_node_agent: bool) -> bool:
         """Check if Velero is installed in the Kubernetes cluster.
@@ -148,6 +177,45 @@ class Velero:
             logging.error("stderr: %s", cpe.stderr)
 
             raise VeleroError(error_msg) from cpe
+
+    def remove(self, kube_client: Client) -> None:
+        """Remove Velero resources from the cluster.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+        """
+        remove_msg = (
+            f"Uninstalling the following Velero resources from '{self._namespace}' namespace:\n"
+            + "\n".join([f"    {res.type.__name__}: '{res.name}'" for res in self._all_resources])
+        )
+        logger.info(remove_msg)
+
+        for resource in self._all_resources:
+            try:
+                if issubclass(resource.type, NamespacedResource):
+                    kube_client.delete(
+                        resource.type, name=resource.name, namespace=self._namespace
+                    )
+                elif issubclass(resource.type, GlobalResource):
+                    kube_client.delete(resource.type, name=resource.name)
+                else:  # pragma: no cover
+                    raise ValueError(f"Unknown resource type: {resource.type}")
+            except ApiError as ae:
+                if ae.status.code == 404:
+                    logging.warning(
+                        "Resource %s '%s' not found, skipping deletion",
+                        resource.type.__name__,
+                        resource.name,
+                    )
+                else:
+                    logging.error(
+                        "Failed to delete %s '%s' resource: %s",
+                        resource.type.__name__,
+                        resource.name,
+                        ae,
+                    )
+
+    # CHECKERS
 
     @staticmethod
     def get_deployment_availability(deployment: Deployment) -> DeploymentCondition:
