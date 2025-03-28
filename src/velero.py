@@ -110,6 +110,7 @@ class Velero:
                 else:  # pragma: no cover
                     raise ValueError(f"Unknown resource type: {resource.type}")
             except ApiError:
+                logger.warning(f"Resource %s '%s' not found", resource.type.__name__, resource.name)
                 return False
         return True
 
