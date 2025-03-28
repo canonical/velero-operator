@@ -9,6 +9,8 @@ package-mode = false
 python = "^3.12"
 ops = "^2.17.0"
 lightkube = "^0.17.1"
+pydantic = "^2.10.6"
+tenacity = "^9.0.0"
 
 # Testing tools configuration
 [tool.coverage.run]
@@ -52,6 +54,7 @@ ignore-words-list = "NotIn"
 # LSPs and formatters
 [tool.pyright]
 include = ["src"]
+extraPaths = ["lib"]
 
 [tool.black]
 line-length = 99
@@ -98,7 +101,7 @@ optional = true
 [tool.poetry.group.unit.dependencies]
 coverage = { extras = ["toml"], version = ">7.0" }
 pytest = "^8.3.3"
-pytest-operator = ">0.30"
+ops = { version = "^2.17.0", extras = ["testing"] }
 
 # integration tests
 [tool.poetry.group.integration]
