@@ -63,6 +63,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         self.framework.observe(self.on.install, self._reconcile)
         self.framework.observe(self.on.update_status, self._reconcile)
         self.framework.observe(self.on.remove, self._on_remove)
+        self.framework.observe(self.on.config_changed, self._reconcile)
 
     # PROPERTIES
 
