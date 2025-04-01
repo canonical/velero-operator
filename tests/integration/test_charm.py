@@ -34,6 +34,11 @@ def lightkube_client() -> Client:
     return client
 
 
+def get_velero(model: str) -> Velero:
+    """Return a Velero instance for the given model."""
+    return Velero("./velero", model)
+
+
 def get_model(ops_test: OpsTest) -> Model:
     """Return the Juju model of the current test.
 
@@ -88,6 +93,7 @@ async def test_trust_blocked_deployment(ops_test: OpsTest):
 async def test_remove(ops_test: OpsTest, lightkube_client):
     """Remove the application and assert that all resources are deleted."""
     model = get_model(ops_test)
+    velero = get_velero(model.name)
 
     await asyncio.gather(
         model.remove_application(APP_NAME),
@@ -97,7 +103,7 @@ async def test_remove(ops_test: OpsTest, lightkube_client):
         ),
     )
 
-    for resource in Velero("", model.name)._all_resources:
+    for resource in velero._all_resources:
         try:
             lightkube_client.get(resource.type, resource.name)
             assert False, f"Resource {resource.name} was not deleted"
