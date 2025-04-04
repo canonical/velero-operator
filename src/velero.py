@@ -49,14 +49,6 @@ class VeleroResource:
     type: Type[Union[NamespacedResource, GlobalResource]]
 
 
-@dataclass
-class VeleroCRD:
-    """Velero Custom Resource Definition."""
-
-    name: str
-    type: Type[CustomResourceDefinition]
-
-
 class VeleroError(Exception):
     """Base class for Velero exceptions."""
 
@@ -96,7 +88,7 @@ class Velero:
         return VELERO_CLUSTER_ROLE_BINDING_NAME + postfix
 
     @property
-    def _crds(self) -> List[VeleroCRD]:
+    def _crds(self) -> List[VeleroResource]:
         """Return the Velero CRDs by parsing the dry-run install YAML output."""
         try:
             output = subprocess.check_output(
@@ -108,7 +100,7 @@ class Velero:
             raise VeleroError("Failed to load Velero CRDs from dry-run install.") from err
 
         return [
-            VeleroCRD(name=crd.metadata.name, type=CustomResourceDefinition)
+            VeleroResource(name=crd.metadata.name, type=CustomResourceDefinition)
             for crd in reversed(resources)
             if isinstance(crd, CustomResourceDefinition) and crd.metadata and crd.metadata.name
         ]
@@ -143,7 +135,7 @@ class Velero:
         ]
 
     @property
-    def _all_resources(self) -> List[Union[VeleroResource, VeleroCRD]]:
+    def _all_resources(self) -> List[VeleroResource]:
         """Return all Velero resources."""
         return self._crds + self._core_resources + self._storage_provider_resources
 

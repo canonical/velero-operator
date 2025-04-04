@@ -10,7 +10,7 @@ from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
 from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
 
-from velero import Velero, VeleroCRD, VeleroError, VeleroResource
+from velero import Velero, VeleroError, VeleroResource
 
 NAMESPACE = "test-namespace"
 VELERO_IMAGE = "velero/velero:latest"
@@ -242,7 +242,7 @@ def test_is_installed_ignore_daemonset(mock_lightkube_client, velero):
 def test_remove_success(mock_lightkube_client, velero, mock_velero_all_resources):
     """Tests that Velero.remove calls delete on the correct resources."""
     mock_velero_all_resources.return_value = [
-        VeleroCRD(name="crd", type=CustomResourceDefinition),
+        VeleroResource(name="crd", type=CustomResourceDefinition),
         VeleroResource(name="ns-resource", type=Deployment),
         VeleroResource(name="global-resource", type=ClusterRoleBinding),
     ]
@@ -316,15 +316,14 @@ def test_crds_property_cmd_error(mock_check_output, velero):
 
 
 @patch.object(Velero, "_crds", new_callable=PropertyMock)
-def test_storage_provider_and_all_resources_property(mock_velero_crds, velero):
+def test_all_resources_property(mock_velero_crds, velero):
     """Ensure _storage_provider_resources and _all_resources are populated correctly."""
     mock_velero_crds.return_value = [
-        VeleroCRD(name="crd-1", type=CustomResourceDefinition),
-        VeleroCRD(name="crd-2", type=CustomResourceDefinition),
+        VeleroResource(name="crd-1", type=CustomResourceDefinition),
+        VeleroResource(name="crd-2", type=CustomResourceDefinition),
     ]
 
     all_resources = velero._all_resources
-    assert all(isinstance(resource, (VeleroResource, VeleroCRD)) for resource in all_resources)
     assert len(all_resources) == len(mock_velero_crds.return_value) + len(
         velero._storage_provider_resources
     ) + len(velero._core_resources)
