@@ -8,11 +8,12 @@ import subprocess
 from dataclasses import dataclass
 from typing import List, Type, Union
 
-from lightkube import Client
+from lightkube import Client, codecs
 from lightkube.core.exceptions import ApiError
 from lightkube.core.resource import GlobalResource, NamespacedResource
 from lightkube.generic_resource import create_namespaced_resource
 from lightkube.models.apps_v1 import DeploymentCondition
+from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
 from lightkube.resources.core_v1 import Secret, ServiceAccount
 from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
@@ -48,6 +49,14 @@ class VeleroResource:
     type: Type[Union[NamespacedResource, GlobalResource]]
 
 
+@dataclass
+class VeleroCRD:
+    """Velero Custom Resource Definition."""
+
+    name: str
+    type: Type[CustomResourceDefinition]
+
+
 class VeleroError(Exception):
     """Base class for Velero exceptions."""
 
@@ -67,8 +76,6 @@ class Velero:
         """
         self._velero_binary_path = velero_binary_path
         self._namespace = namespace
-        self._core_resources = self._get_core_resources()
-        self._all_resources = self._core_resources + self._get_storage_provider_resources()
 
     # PROPERTIES
 
@@ -88,9 +95,26 @@ class Velero:
         postfix = f"-{self._namespace}" if self._namespace != "velero" else ""
         return VELERO_CLUSTER_ROLE_BINDING_NAME + postfix
 
-    # METHODS
+    @property
+    def _crds(self) -> List[VeleroCRD]:
+        """Return the Velero CRDs by parsing the dry-run install YAML output."""
+        try:
+            output = subprocess.check_output(
+                [self._velero_binary_path, "install", "--crds-only", "--dry-run", "-o", "yaml"],
+                text=True,
+            )
+            resources = codecs.load_all_yaml(output)
+        except Exception as err:
+            raise VeleroError("Failed to load Velero CRDs from dry-run install.") from err
 
-    def _get_core_resources(self) -> List[VeleroResource]:
+        return [
+            VeleroCRD(name=crd.metadata.name, type=CustomResourceDefinition)
+            for crd in reversed(resources)
+            if isinstance(crd, CustomResourceDefinition) and crd.metadata and crd.metadata.name
+        ]
+
+    @property
+    def _core_resources(self) -> List[VeleroResource]:
         """Return the core Velero resources."""
         return [
             VeleroResource(VELERO_DEPLOYMENT_NAME, Deployment),
@@ -100,7 +124,8 @@ class Velero:
             VeleroResource(self._velero_crb_name, ClusterRoleBinding),
         ]
 
-    def _get_storage_provider_resources(self) -> List[VeleroResource]:
+    @property
+    def _storage_provider_resources(self) -> List[VeleroResource]:
         """Return all Velero resources."""
         return [
             VeleroResource(
@@ -116,6 +141,13 @@ class Velero:
                 ),
             ),
         ]
+
+    @property
+    def _all_resources(self) -> List[Union[VeleroResource, VeleroCRD]]:
+        """Return all Velero resources."""
+        return self._crds + self._core_resources + self._storage_provider_resources
+
+    # METHODS
 
     def is_installed(self, kube_client: Client, use_node_agent: bool) -> bool:
         """Check if Velero is installed in the Kubernetes cluster.
