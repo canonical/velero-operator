@@ -194,3 +194,16 @@ def test_log_and_set_status(logger, status, message, expected_log_level, mock_li
         manager.charm._log_and_set_status(status)
         log_method = getattr(logger, expected_log_level)
         log_method.assert_called_once_with(message)
+
+
+def test_on_remove(mock_velero, mock_lightkube_client):
+    """Test that the install event calls Velero.install with the correct arguments."""
+    # Arrange
+    ctx = testing.Context(VeleroOperatorCharm)
+
+    # Act
+    state_out = ctx.run(ctx.on.remove(), testing.State())
+
+    # Assert
+    mock_velero.remove.assert_called_once()
+    assert state_out.unit_status == testing.MaintenanceStatus("Removing Velero from the cluster")

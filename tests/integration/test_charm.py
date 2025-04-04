@@ -5,11 +5,17 @@
 import asyncio
 import logging
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
+from httpx import HTTPStatusError
 from juju.model import Model
+from lightkube import Client
+from lightkube.core.exceptions import ApiError
 from pytest_operator.plugin import OpsTest
+
+from velero import Velero
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +27,18 @@ UNTRUST_ERROR_MESSAGE = (
     "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
 )
 READY_MESSAGE = "Unit is Ready"
+
+
+@pytest.fixture(scope="session")
+def lightkube_client() -> Client:
+    """Return a lightkube client to use in this session."""
+    client = Client(field_manager=APP_NAME)
+    return client
+
+
+def get_velero(model: str) -> Velero:
+    """Return a Velero instance for the given model."""
+    return Velero("./velero", model)
 
 
 def get_model(ops_test: OpsTest) -> Model:
@@ -36,6 +54,17 @@ def get_model(ops_test: OpsTest) -> Model:
     if model is None:
         raise AssertionError("ops_test has a None model.")
     return model
+
+
+async def run_command_on_unit(ops_test, unit_name: str, command: str) -> dict:
+    """Run command on unit and return results."""
+    complete_command = ["exec", "--unit", unit_name, "--", *command.split()]
+    return_code, stdout, _ = await ops_test.juju(*complete_command)
+    results = {
+        "return-code": return_code,
+        "stdout": stdout,
+    }
+    return results
 
 
 @pytest.mark.abort_on_fail
@@ -71,3 +100,32 @@ async def test_trust_blocked_deployment(ops_test: OpsTest):
 
     for unit in model.applications[APP_NAME].units:
         assert unit.workload_status_message == READY_MESSAGE
+
+
+@pytest.mark.abort_on_fail
+async def test_remove(ops_test: OpsTest, lightkube_client):
+    """Remove the application and assert that all resources are deleted."""
+    model = get_model(ops_test)
+
+    cmd = "./velero install --crds-only --dry-run -o yaml"
+    unit = model.applications[APP_NAME].units[0]
+
+    with patch("velero.subprocess.check_output") as mock:
+        result = await run_command_on_unit(ops_test, unit.name, cmd)
+        mock.return_value = result["stdout"]
+        velero = get_velero(model.name)
+
+        await asyncio.gather(
+            model.remove_application(APP_NAME),
+            model.block_until(
+                lambda: model.applications[APP_NAME].status == "unknown",
+                timeout=60 * 2,
+            ),
+        )
+
+        for resource in velero._all_resources:
+            try:
+                lightkube_client.get(resource.type, resource.name)
+                assert False, f"Resource {resource.name} was not deleted"
+            except (ApiError, HTTPStatusError) as ae:
+                assert ae.response.status_code == 404
