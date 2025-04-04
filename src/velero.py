@@ -137,7 +137,7 @@ class Velero:
     @property
     def _all_resources(self) -> List[VeleroResource]:
         """Return all Velero resources."""
-        return self._crds + self._core_resources + self._storage_provider_resources
+        return self._storage_provider_resources + self._crds + self._core_resources
 
     # METHODS
 
