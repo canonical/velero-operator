@@ -89,7 +89,11 @@ class Velero:
 
     @property
     def _crds(self) -> List[VeleroResource]:
-        """Return the Velero CRDs by parsing the dry-run install YAML output."""
+        """Return the Velero CRDs by parsing the dry-run install YAML output.
+
+        Raises:
+            VeleroError: If the CRDs cannot be loaded from the dry-run install output.
+        """
         try:
             output = subprocess.check_output(
                 [self._velero_binary_path, "install", "--crds-only", "--dry-run", "-o", "yaml"],
@@ -97,7 +101,8 @@ class Velero:
             )
             resources = codecs.load_all_yaml(output)
         except Exception as err:
-            raise VeleroError("Failed to load Velero CRDs from dry-run install.") from err
+            logger.error("Failed to load Velero CRDs from dry-run install: %s", err)
+            raise VeleroError("Failed to load Velero CRDs from dry-run install") from err
 
         return [
             VeleroResource(name=crd.metadata.name, type=CustomResourceDefinition)
@@ -149,6 +154,9 @@ class Velero:
             namespace: The namespace where Velero is installed.
             use_node_agent: Whether to use the Velero node agent (DaemonSet).
 
+        Raises:
+            VeleroError: If the Velero installation check fails.
+
         Returns:
             bool: True if Velero is installed, False otherwise.
         """
@@ -173,6 +181,9 @@ class Velero:
         Args:
             velero_image: The Velero image to use.
             use_node_agent: Whether to use the Velero node agent (DaemonSet).
+
+        Raises:
+            VeleroError: If the installation fails.
         """
         install_msg = (
             "Installing the Velero with the following settings:\n"
@@ -279,6 +290,7 @@ class Velero:
 
         Raises:
             VeleroError: If the Velero deployment is not ready.
+            APIError: If the deployment is not found.
         """
         logger.info("Checking the Velero Deployment readiness")
         observations = 0
@@ -315,6 +327,7 @@ class Velero:
 
         Raises:
             VeleroError: If the Velero DaemonSet is not ready.
+            APIError: If the DaemonSet is not found.
         """
         observations = 0
         logger.info("Checking the Velero NodeAgent readiness")

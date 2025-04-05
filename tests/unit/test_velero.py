@@ -311,7 +311,7 @@ def test_crds_property_success(mock_load_all_yaml, mock_check_output, velero):
 
 @patch("velero.subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "cmd"))
 def test_crds_property_cmd_error(mock_check_output, velero):
-    with pytest.raises(VeleroError, match="Failed to load Velero CRDs from dry-run install."):
+    with pytest.raises(VeleroError):
         _ = velero._crds
 
 
