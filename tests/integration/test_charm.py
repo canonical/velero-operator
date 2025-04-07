@@ -5,7 +5,6 @@
 import asyncio
 import logging
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 import yaml
@@ -13,6 +12,7 @@ from httpx import HTTPStatusError
 from juju.model import Model
 from lightkube import Client
 from lightkube.core.exceptions import ApiError
+from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from pytest_operator.plugin import OpsTest
 
 from velero import Velero
@@ -56,17 +56,6 @@ def get_model(ops_test: OpsTest) -> Model:
     return model
 
 
-async def run_command_on_unit(ops_test, unit_name: str, command: str) -> dict:
-    """Run command on unit and return results."""
-    complete_command = ["exec", "--unit", unit_name, "--", *command.split()]
-    return_code, stdout, _ = await ops_test.juju(*complete_command)
-    results = {
-        "return-code": return_code,
-        "stdout": stdout,
-    }
-    return results
-
-
 @pytest.mark.abort_on_fail
 async def test_build_and_deploy_without_trust(ops_test: OpsTest):
     """Build the charm-under-test and deploy it together with related charms.
@@ -106,26 +95,26 @@ async def test_trust_blocked_deployment(ops_test: OpsTest):
 async def test_remove(ops_test: OpsTest, lightkube_client):
     """Remove the application and assert that all resources are deleted."""
     model = get_model(ops_test)
+    velero = get_velero(model.name)
 
-    cmd = "./velero install --crds-only --dry-run -o yaml"
-    unit = model.applications[APP_NAME].units[0]
+    await asyncio.gather(
+        model.remove_application(APP_NAME),
+        model.block_until(
+            lambda: model.applications[APP_NAME].status == "unknown",
+            timeout=60 * 2,
+        ),
+    )
 
-    with patch("velero.subprocess.check_output") as mock:
-        result = await run_command_on_unit(ops_test, unit.name, cmd)
-        mock.return_value = result["stdout"]
-        velero = get_velero(model.name)
+    for resource in velero._core_resources + velero._storage_provider_resources:
+        try:
+            lightkube_client.get(resource.type, resource.name)
+            assert False, f"Resource {resource.name} was not deleted"
+        except (ApiError, HTTPStatusError) as ae:
+            assert ae.response.status_code == 404
 
-        await asyncio.gather(
-            model.remove_application(APP_NAME),
-            model.block_until(
-                lambda: model.applications[APP_NAME].status == "unknown",
-                timeout=60 * 2,
-            ),
+    result = list(
+        lightkube_client.list(
+            CustomResourceDefinition, labels={"component": "velero"}, namespace=model.name
         )
-
-        for resource in velero._all_resources:
-            try:
-                lightkube_client.get(resource.type, resource.name)
-                assert False, f"Resource {resource.name} was not deleted"
-            except (ApiError, HTTPStatusError) as ae:
-                assert ae.response.status_code == 404
+    )
+    assert not result, "CustomResourceDefinitions were not deleted"
