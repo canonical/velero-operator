@@ -116,15 +116,15 @@ class Velero:
         return [
             VeleroResource(VELERO_DEPLOYMENT_NAME, Deployment),
             VeleroResource(VELERO_NODE_AGENT_NAME, DaemonSet),
-            VeleroResource(VELERO_SECRET_NAME, Secret),
             VeleroResource(VELERO_SERVICE_ACCOUNT_NAME, ServiceAccount),
             VeleroResource(self._velero_crb_name, ClusterRoleBinding),
         ]
 
     @property
     def _storage_provider_resources(self) -> List[VeleroResource]:
-        """Return all Velero resources."""
+        """Return the Velero storage provider resources."""
         return [
+            VeleroResource(VELERO_SECRET_NAME, Secret),
             VeleroResource(
                 VELERO_BACKUP_LOCATION_NAME,
                 create_namespaced_resource(
