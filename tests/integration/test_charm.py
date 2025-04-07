@@ -8,8 +8,14 @@ from pathlib import Path
 
 import pytest
 import yaml
+from httpx import HTTPStatusError
 from juju.model import Model
+from lightkube import Client
+from lightkube.core.exceptions import ApiError
+from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from pytest_operator.plugin import OpsTest
+
+from velero import Velero
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +27,18 @@ UNTRUST_ERROR_MESSAGE = (
     "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
 )
 READY_MESSAGE = "Unit is Ready"
+
+
+@pytest.fixture(scope="session")
+def lightkube_client() -> Client:
+    """Return a lightkube client to use in this session."""
+    client = Client(field_manager=APP_NAME)
+    return client
+
+
+def get_velero(model: str) -> Velero:
+    """Return a Velero instance for the given model."""
+    return Velero("./velero", model)
 
 
 def get_model(ops_test: OpsTest) -> Model:
@@ -71,3 +89,32 @@ async def test_trust_blocked_deployment(ops_test: OpsTest):
 
     for unit in model.applications[APP_NAME].units:
         assert unit.workload_status_message == READY_MESSAGE
+
+
+@pytest.mark.abort_on_fail
+async def test_remove(ops_test: OpsTest, lightkube_client):
+    """Remove the application and assert that all resources are deleted."""
+    model = get_model(ops_test)
+    velero = get_velero(model.name)
+
+    await asyncio.gather(
+        model.remove_application(APP_NAME),
+        model.block_until(
+            lambda: model.applications[APP_NAME].status == "unknown",
+            timeout=60 * 2,
+        ),
+    )
+
+    for resource in velero._core_resources + velero._storage_provider_resources:
+        try:
+            lightkube_client.get(resource.type, resource.name)
+            assert False, f"Resource {resource.name} was not deleted"
+        except (ApiError, HTTPStatusError) as ae:
+            assert ae.response.status_code == 404
+
+    result = list(
+        lightkube_client.list(
+            CustomResourceDefinition, labels={"component": "velero"}, namespace=model.name
+        )
+    )
+    assert not result, "CustomResourceDefinitions were not deleted"
