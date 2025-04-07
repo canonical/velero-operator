@@ -68,3 +68,13 @@ parts:
     source-type: tar
     stage:
       - velero
+
+requires:
+  s3:
+    interface: s3
+    limit: 1
+    optional: true
+  azure:
+    interface: azure_storage
+    limit: 1
+    optional: true

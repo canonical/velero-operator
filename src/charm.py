@@ -5,16 +5,18 @@
 """The Velero Charm."""
 
 import logging
-from typing import Union
+from typing import Optional, Union
 
 import ops
+from charms.data_platform_libs.v0.azure_storage import AzureStorageRequires
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
+from charms.data_platform_libs.v0.s3 import S3Requirer
 from lightkube import ApiError, Client
 from lightkube.resources.rbac_authorization_v1 import ClusterRole
 from pydantic import ValidationError
 
 from config import CharmConfig
-from constants import VELERO_BINARY_PATH
+from constants import VELERO_BINARY_PATH, StorageProviders
 from velero import Velero, VeleroError
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,9 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
     def __init__(self, framework: ops.Framework):
         super().__init__(framework)
+        self._stored.set_default(
+            storage_provider=None,
+        )
 
         # Lightkube client needed for interacting with the Kubernetes cluster
         self.lightkube_client = None
@@ -60,10 +65,17 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             )
             return
 
+        self.s3_integrator = S3Requirer(self, StorageProviders.S3)
+        self.azure_integrator = AzureStorageRequires(self, StorageProviders.AZURE)
+
         self.framework.observe(self.on.install, self._reconcile)
         self.framework.observe(self.on.update_status, self._reconcile)
-        self.framework.observe(self.on.remove, self._on_remove)
         self.framework.observe(self.on.config_changed, self._reconcile)
+        self.framework.observe(self.on.s3_relation_joined, self._on_storage_relation_joined)
+        self.framework.observe(self.on.azure_relation_joined, self._on_storage_relation_joined)
+        self.framework.observe(self.on.s3_relation_departed, self._on_storage_relation_departed)
+        self.framework.observe(self.on.azure_relation_departed, self._on_storage_relation_departed)
+        self.framework.observe(self.on.remove, self._on_remove)
 
     # PROPERTIES
 
@@ -91,6 +103,35 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
     def velero(self, value):
         self._velero = value
 
+    @property
+    def _storage_relation_count(self) -> int:
+        """Return the number of storage providers currently related."""
+        providers = [p.value for p in StorageProviders]
+        return sum(len(self.model.relations.get(provider, [])) > 0 for provider in providers)
+
+    @property
+    def _active_storage_relation(self) -> Optional[StorageProviders]:
+        """Return an active related storage provided.
+
+        If there are more than one storage provider related, return None
+        """
+        providers = [p.value for p in StorageProviders]
+        if self._storage_relation_count == 1:
+            for provider in providers:
+                if len(self.model.relations.get(provider, [])) > 0:
+                    return StorageProviders[provider]
+        return None
+
+    @property
+    def storage_provider(self) -> Optional[StorageProviders]:
+        """Return the stored storage provider."""
+        return self._stored.storage_provider
+
+    @storage_provider.setter
+    def storage_provider(self, value: Optional[StorageProviders]) -> None:
+        """Set the stored storage provider."""
+        self._stored.storage_provider = value
+
     # EVENT HANDLERS
 
     def _reconcile(self, event: ops.EventBase) -> None:
@@ -102,6 +143,30 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 self._log_and_set_status(
                     ops.BlockedStatus(
                         "Failed to install Velero on the cluster. See juju debug-log for details."
+                    )
+                )
+                return
+
+        is_storage_configured = self.velero.is_storage_configured(self.lightkube_client)
+        if not self.storage_provider and is_storage_configured:
+            try:
+                self._remove_storage_locations()
+                is_storage_configured = False
+            except VeleroError:
+                self._log_and_set_status(
+                    ops.BlockedStatus(
+                        "Failed to remove Velero storage. See juju debug-log for details."
+                    )
+                )
+                return
+
+        if self.storage_provider and not is_storage_configured:
+            try:
+                self._configure_storage_locations()
+            except VeleroError:
+                self._log_and_set_status(
+                    ops.BlockedStatus(
+                        "Failed to configure Velero storage. See juju debug-log for details."
                     )
                 )
                 return
@@ -121,6 +186,31 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             self.config.use_node_agent,
         )
 
+    def _configure_storage_locations(self) -> None:
+        """Handle the configure event.
+
+        Raises:
+            VeleroError: If the configuration of Velero fails
+        """
+        self._log_and_set_status(
+            ops.MaintenanceStatus("Configuring Velero Storage Provider on the cluster")
+        )
+
+        self.velero.configure_storage_locations(self.lightkube_client)
+
+    def _remove_storage_locations(self) -> None:
+        """Handle the remove event.
+
+        Raises:
+            VeleroError: If the removal of Velero fails
+        """
+        self._log_and_set_status(
+            ops.MaintenanceStatus("Removing Velero Storage Provider from the cluster")
+        )
+
+        self.velero.remove_storage_locations(self.lightkube_client)
+        self.storage_provider = self._active_storage_relation
+
     def _update_status(self) -> None:
         """Handle the update-status event."""
         try:
@@ -136,6 +226,26 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 self._log_and_set_status(ops.BlockedStatus(f"Velero NodeAgent is not ready: {ve}"))
                 return
 
+        if not self.storage_provider:
+            self._log_and_set_status(ops.BlockedStatus("Missing relation: [s3|azure]"))
+            return
+
+        if self._storage_relation_count > 1:
+            self._log_and_set_status(
+                ops.BlockedStatus(
+                    "Only one Storage Provider should be related at the time: [s3|azure]"
+                )
+            )
+            return
+
+        try:
+            Velero.check_velero_storage_locations(self.lightkube_client, self.model.name)
+        except (VeleroError, ApiError):
+            self._log_and_set_status(
+                ops.BlockedStatus("Velero Storage Locations are not ready: {ve}")
+            )
+            return
+
         self._log_and_set_status(ops.ActiveStatus("Unit is Ready"))
 
     def _on_remove(self, event: ops.RemoveEvent) -> None:
@@ -143,6 +253,20 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         self._log_and_set_status(ops.MaintenanceStatus("Removing Velero from the cluster"))
 
         self.velero.remove(self.lightkube_client)
+
+    def _on_storage_relation_joined(self, event: ops.RelationJoinedEvent) -> None:
+        """Handle the storage relation joined event."""
+        if not self.storage_provider:
+            self.storage_provider = StorageProviders[event.relation.name]
+
+        self._reconcile(event)
+
+    def _on_storage_relation_departed(self, event: ops.RelationBrokenEvent) -> None:
+        """Handle the departure of a storage relation."""
+        if self.storage_provider == StorageProviders[event.relation.name]:
+            self.storage_provider = None
+
+        self._reconcile(event)
 
     # HELPER METHODS
 
