@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import List, Type, Union
 
 from lightkube import Client, codecs
-from lightkube.core.exceptions import ApiError
+from lightkube.core.exceptions import ApiError, LoadResourceError
 from lightkube.core.resource import GlobalResource, NamespacedResource
 from lightkube.generic_resource import create_namespaced_resource
 from lightkube.models.apps_v1 import DeploymentCondition
@@ -100,9 +100,9 @@ class Velero:
                 text=True,
             )
             resources = codecs.load_all_yaml(output)
-        except Exception as err:
-            logger.error("Failed to load Velero CRDs from dry-run install: %s", err)
-            raise VeleroError("Failed to load Velero CRDs from dry-run install") from err
+        except (LoadResourceError, subprocess.CalledProcessError) as e:
+            logger.error("Failed to load Velero CRDs from dry-run install: %s", e)
+            raise VeleroError("Failed to load Velero CRDs from dry-run install") from e
 
         return [
             VeleroResource(name=crd.metadata.name, type=CustomResourceDefinition)
