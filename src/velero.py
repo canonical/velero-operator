@@ -3,10 +3,11 @@
 
 """Velero related code."""
 
+import base64
 import logging
 import subprocess
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Type
 
 from lightkube import Client, codecs
 from lightkube.core.exceptions import ApiError, LoadResourceError
@@ -15,6 +16,7 @@ from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
 from lightkube.resources.core_v1 import Secret, ServiceAccount
 from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
+from pydantic import BaseModel, Field, ValidationError
 
 from constants import (
     VELERO_BACKUP_LOCATION_NAME,
@@ -28,7 +30,7 @@ from constants import (
     VELERO_VOLUME_SNAPSHOT_LOCATION_NAME,
     VELERO_VOLUME_SNAPSHOT_LOCATION_RESOURCE,
 )
-from utils import (
+from k8s_utils import (
     K8sResource,
     k8s_create_secret,
     k8s_remove_resource,
@@ -43,67 +45,156 @@ class VeleroError(Exception):
     """Base class for Velero exceptions."""
 
 
+class StorageProviderError(VeleroError):
+    """Base class for storage provider exceptions."""
+
+
+class StorageConfig(ABC, BaseModel):
+    """Base Pydantic model for storage config."""
+
+    class Config:
+        """Pydantic model config."""
+
+        populate_by_name = True
+
+    @classmethod
+    def describe(cls) -> str:
+        """Return a string representation of the model."""
+        return (
+            f"Required fields: "
+            f"{', '.join(f.alias or name for name, f in cls.model_fields.items())}"
+        )
+
+
 class VeleroStorageProvider(ABC):
     """Base class for Velero storage provider."""
 
-    def __init__(self, plugin: str, plugin_image: str, bucket: str) -> None:
-        """Initialize the VeleroStorageProvider class.
-
-        Args:
-            plugin: The name of the storage provider plugin.
-            plugin_image: The image of the storage provider plugin.
-            bucket: The bucket name for the storage provider.
-        """
-        self._plugin = plugin
+    def __init__(
+        self, plugin_image: str, data: Dict[str, str], config_cls: Type[StorageConfig]
+    ) -> None:
         self._plugin_image = plugin_image
-        self._bucket = bucket
+        try:
+            self._config = config_cls(**data)
+        except ValidationError as ve:
+            raise StorageProviderError(f"Invalid config. {config_cls.describe()}") from ve
+
+    @property
+    @abstractmethod
+    def plugin(self) -> str:
+        """Return the storage provider plugin name."""
+        ...
+
+    @property
+    def plugin_image(self) -> str:
+        """Return the storage provider plugin image."""
+        return self._plugin_image
+
+    @property
+    @abstractmethod
+    def bucket(self) -> str:
+        """Return the storage bucket name."""
+        ...
 
     @property
     @abstractmethod
     def secret_data(self) -> str:
-        """Return the secret data for the storage provider.
-
-        Returns:
-            str: The base64 encoded secret data for the storage provider.
-        """
-        pass
+        """Return the base64 encoded secret data for the storage provider."""
+        ...
 
     @property
     @abstractmethod
     def config_flags(self) -> Dict[str, str]:
-        """Return the configuration flags for the storage provider.
+        """Return the configuration flags for the storage provider."""
+        ...
 
-        Returns:
-            Dict[str, str]: The configuration flags for the storage provider.
-        """
-        pass
+    def _encode_secret(self, secret: str) -> str:
+        """Encode the secret data to base64."""
+        return base64.b64encode(secret.encode("utf-8")).decode("utf-8")
+
+
+class S3Config(StorageConfig):
+    """Pydantic model for S3 storage config."""
+
+    region: str
+    bucket: str
+    access_key: str = Field(alias="access-key")
+    secret_key: str = Field(alias="secret-key")
+
+
+class S3StorageProvider(VeleroStorageProvider):
+    """S3 storage provider for Velero."""
+
+    def __init__(self, plugin_image: str, data: Dict[str, str]) -> None:
+        self._config: S3Config
+        super().__init__(plugin_image, data, S3Config)
 
     @property
     def plugin(self) -> str:
-        """Return the storage provider plugin name.
-
-        Returns:
-            str: The name of the storage provider plugin.
-        """
-        return self._plugin
+        """Return the storage provider plugin name."""
+        return "aws"
 
     @property
     def bucket(self) -> str:
-        """Return the bucket name for the storage provider.
-
-        Returns:
-            str: The bucket name for the storage provider.
-        """
-        return self._bucket
+        """Return the S3 bucket name."""
+        return self._config.bucket
 
     @property
-    def plugin_image(self) -> str:
-        """Return the storage provider plugin image.
+    def secret_data(self) -> str:
+        """Return the base64 encoded secret data for S3 storage provider."""
+        secret = (
+            "[default]\n"
+            f"aws_access_key_id={self._config.access_key}\n"
+            f"aws_secret_access_key={self._config.secret_key}\n"
+        )
+        return self._encode_secret(secret)
 
-        Returns:
-            str: The image of the storage provider plugin.
-        """
-        return self._plugin_image
+    @property
+    def config_flags(self) -> Dict[str, str]:
+        """Return the configuration flags for S3 storage provider."""
+        return {"region": self._config.region}
+
+
+class AzureConfig(StorageConfig):
+    """Pydantic model for Azure storage config."""
+
+    container: str
+    storage_account: str = Field(alias="storage-account")
+    secret_key: str = Field(alias="secret-key")
+
+
+class AzureStorageProvider(VeleroStorageProvider):
+    """Azure storage provider for Velero."""
+
+    def __init__(self, plugin_image: str, data: Dict[str, str]) -> None:
+        self._config: AzureConfig
+        super().__init__(plugin_image, data, AzureConfig)
+
+    @property
+    def plugin(self) -> str:
+        """Return the storage provider plugin name."""
+        return "azure"
+
+    @property
+    def bucket(self) -> str:
+        """Return the Azure storage bucket name."""
+        return self._config.container
+
+    @property
+    def secret_data(self) -> str:
+        """Return the base64 encoded secret data for Azure storage provider."""
+        secret = (
+            f"AZURE_STORAGE_ACCOUNT_ACCESS_KEY={self._config.secret_key}\n"
+            "AZURE_CLOUD_NAME=AzurePublicCloud\n"
+        )
+        return self._encode_secret(secret)
+
+    @property
+    def config_flags(self) -> Dict[str, str]:
+        """Return the configuration flags for Azure storage provider."""
+        return {
+            "storageAccount": self._config.storage_account,
+            "storageAccountKeyEnvVar": "AZURE_STORAGE_ACCOUNT_ACCESS_KEY",
+        }
 
 
 class Velero:
@@ -241,6 +332,7 @@ class Velero:
                     "add",
                     storage_provider.plugin_image,
                     "--confirm",
+                    f"--namespace={self._namespace}",
                 ],
                 check=True,
                 capture_output=True,
@@ -266,6 +358,9 @@ class Velero:
             VeleroError: If the backup location addition fails.
         """
         try:
+            config_flags = ",".join(
+                [f"{key}={value}" for key, value in storage_provider.config_flags.items()]
+            )
             subprocess.run(
                 [
                     self._velero_binary_path,
@@ -277,11 +372,12 @@ class Velero:
                     "--bucket",
                     storage_provider.bucket,
                     "--config",
-                    *[f"{key}={value}" for key, value in storage_provider.config_flags.items()],
-                    "--label",
-                    "component=velero",
+                    config_flags,
                     f"--credential={VELERO_SECRET_NAME}={VELERO_SECRET_KEY}",
                     "--default",
+                    f"--namespace={self._namespace}",
+                    "--labels",
+                    "component=velero",
                 ],
                 check=True,
                 capture_output=True,
@@ -289,7 +385,8 @@ class Velero:
             )
         except subprocess.CalledProcessError as cpe:
             error_msg = (
-                f"'velero plugin add' command returned non-zero exit code: {cpe.returncode}."
+                "'velero backup-location create' command returned non-zero exit code: "
+                f"{cpe.returncode}."
             )
             logging.error(error_msg)
             logging.error("stdout: %s", cpe.stdout)
@@ -307,6 +404,9 @@ class Velero:
             VeleroError: If the volume snapshot location addition fails.
         """
         try:
+            config_flags = ",".join(
+                [f"{key}={value}" for key, value in storage_provider.config_flags.items()]
+            )
             subprocess.run(
                 [
                     self._velero_binary_path,
@@ -316,10 +416,11 @@ class Velero:
                     "--provider",
                     storage_provider.plugin,
                     "--config",
-                    *[f"{key}={value}" for key, value in storage_provider.config_flags.items()],
-                    "--label",
+                    config_flags,
+                    "--labels",
                     "component=velero",
                     f"--credential={VELERO_SECRET_NAME}={VELERO_SECRET_KEY}",
+                    f"--namespace={self._namespace}",
                 ],
                 check=True,
                 capture_output=True,
@@ -327,7 +428,8 @@ class Velero:
             )
         except subprocess.CalledProcessError as cpe:
             error_msg = (
-                f"'velero plugin add' command returned non-zero exit code: {cpe.returncode}."
+                "'velero snapshot-location create' command returned non-zero exit code: "
+                f"{cpe.returncode}."
             )
             logging.error(error_msg)
             logging.error("stdout: %s", cpe.stdout)
@@ -345,6 +447,7 @@ class Velero:
         Returns:
             bool: True if Velero is installed, False otherwise.
         """
+        logger.info("Checking if Velero is installed")
         for resource in self._core_resources:
             if not use_node_agent and resource.type is DaemonSet:
                 continue
@@ -361,6 +464,7 @@ class Velero:
         Returns:
             bool: True if all storage provider resources exist in the cluster, False otherwise.
         """
+        logger.info("Checking if Velero storage locations are configured")
         for resource in self._storage_provider_resources:
             if not k8s_resource_exists(kube_client, resource, self._namespace):
                 return False
@@ -461,7 +565,12 @@ class Velero:
                     f"Failed to remove resource {resource.type.__name__}: {resource.name}"
                 ) from err
 
-        # TODO: Remove the storage provider plugin
+        kube_client.patch(
+            Deployment,
+            VELERO_DEPLOYMENT_NAME,
+            {"spec": {"template": {"spec": {"initContainers": None}}}},
+            namespace=self._namespace,
+        )
 
     def remove(self, kube_client: Client) -> None:
         """Remove Velero resources from the cluster.

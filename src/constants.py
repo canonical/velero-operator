@@ -9,7 +9,7 @@ from lightkube.generic_resource import create_namespaced_resource
 
 VELERO_BINARY_PATH = "./velero"
 
-K8S_CHECK_ATTEMPTS = 30
+K8S_CHECK_ATTEMPTS = 15
 K8S_CHECK_DELAY = 2
 K8S_CHECK_OBSERVATIONS = 5
 
@@ -30,8 +30,8 @@ VELERO_VOLUME_SNAPSHOT_LOCATION_RESOURCE = create_namespaced_resource(
 )
 
 
-class StorageProviders(str, Enum):
+class StorageRelation(str, Enum):
     """Storage provider enum."""
 
-    S3 = "s3"
-    AZURE = "azure"
+    S3 = "s3-credentials"
+    AZURE = "azure-credentials"

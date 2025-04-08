@@ -20,7 +20,7 @@ from tenacity import (
     wait_fixed,
 )
 
-from src.constants import K8S_CHECK_ATTEMPTS, K8S_CHECK_DELAY, K8S_CHECK_OBSERVATIONS
+from constants import K8S_CHECK_ATTEMPTS, K8S_CHECK_DELAY, K8S_CHECK_OBSERVATIONS
 
 logger = logging.getLogger(__name__)
 
