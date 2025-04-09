@@ -1,3 +1,6 @@
+# Copyright 2025 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 import subprocess
 from subprocess import CalledProcessError
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -561,6 +564,7 @@ def test_add_backup_location_success(mock_run, velero):
     provider = MagicMock()
     provider.plugin = "test-plugin"
     provider.bucket = "test-bucket"
+    provider.path = None
     provider.config_flags = {"region": "us-west-2", "other-flag": "value"}
 
     velero._add_backup_location(provider)
@@ -572,6 +576,8 @@ def test_add_backup_location_success(mock_run, velero):
         VELERO_BACKUP_LOCATION_NAME,
         "--provider",
         provider.plugin,
+        # "--prefix",
+        # provider.path,
         "--bucket",
         provider.bucket,
         "--config",

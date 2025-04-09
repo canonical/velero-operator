@@ -5,7 +5,7 @@
 
 import base64
 from abc import ABC, abstractmethod
-from typing import Dict, Type
+from typing import Dict, Optional, Type
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -14,18 +14,18 @@ class StorageProviderError(Exception):
     """Base class for storage provider exceptions."""
 
 
-class StorageConfig(ABC, BaseModel):
+class StorageConfig(BaseModel):
     """Base Pydantic model for storage config."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     @classmethod
-    def describe(cls) -> str:
+    def get_required(cls) -> str:
         """Return a string representation of the model."""
-        return (
-            f"{cls.__name__} required fields: "
-            f"{', '.join(f.alias or name for name, f in cls.model_fields.items())}"
-        )
+        required_fields = [
+            f.alias or name for name, f in cls.model_fields.items() if f.is_required()
+        ]
+        return f"{cls.__name__} required fields: {", ".join(required_fields)}"
 
 
 class VeleroStorageProvider(ABC):
@@ -38,7 +38,7 @@ class VeleroStorageProvider(ABC):
         try:
             self._config = config_cls(**data)
         except ValidationError as ve:
-            raise StorageProviderError(config_cls.describe()) from ve
+            raise StorageProviderError(config_cls.get_required()) from ve
 
     @property
     @abstractmethod
@@ -55,6 +55,12 @@ class VeleroStorageProvider(ABC):
     @abstractmethod
     def bucket(self) -> str:  # pragma: no cover
         """Return the storage bucket name."""
+        ...
+
+    @property
+    @abstractmethod
+    def path(self) -> Optional[str]:  # pragma: no cover
+        """Return the storage path."""
         ...
 
     @property
@@ -79,6 +85,8 @@ class S3Config(StorageConfig):
 
     region: str
     bucket: str
+    endpoint: Optional[str] = Field(None, alias="endpoint")
+    path: Optional[str] = Field(None, alias="path")
     access_key: str = Field(alias="access-key")
     secret_key: str = Field(alias="secret-key")
 
@@ -101,6 +109,11 @@ class S3StorageProvider(VeleroStorageProvider):
         return self._config.bucket
 
     @property
+    def path(self) -> Optional[str]:
+        """Return the S3 storage path."""
+        return self._config.path
+
+    @property
     def secret_data(self) -> str:
         """Return the base64 encoded secret data for S3 storage provider."""
         secret = (
@@ -113,7 +126,10 @@ class S3StorageProvider(VeleroStorageProvider):
     @property
     def config_flags(self) -> Dict[str, str]:
         """Return the configuration flags for S3 storage provider."""
-        return {"region": self._config.region}
+        flags = {"region": self._config.region}
+        if self._config.endpoint is not None:
+            flags["s3Url"] = f"{self._config.endpoint}"
+        return flags
 
 
 class AzureConfig(StorageConfig):
@@ -122,6 +138,7 @@ class AzureConfig(StorageConfig):
     container: str
     storage_account: str = Field(alias="storage-account")
     secret_key: str = Field(alias="secret-key")
+    path: Optional[str] = Field(None, alias="path")
 
 
 class AzureStorageProvider(VeleroStorageProvider):
@@ -140,6 +157,11 @@ class AzureStorageProvider(VeleroStorageProvider):
     def bucket(self) -> str:
         """Return the Azure storage bucket name."""
         return self._config.container
+
+    @property
+    def path(self) -> Optional[str]:
+        """Return the Azure storage path."""
+        return self._config.path
 
     @property
     def secret_data(self) -> str:

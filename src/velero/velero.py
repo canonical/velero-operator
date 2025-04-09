@@ -34,7 +34,8 @@ from k8s_utils import (
     k8s_resource_exists,
     k8s_retry_check,
 )
-from src.velero.velero_providers import VeleroStorageProvider
+
+from .velero_providers import VeleroStorageProvider
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,7 @@ class Velero:
             config_flags = ",".join(
                 [f"{key}={value}" for key, value in storage_provider.config_flags.items()]
             )
+            prefix = ["--prefix", storage_provider.path] if storage_provider.path else []
             subprocess.run(
                 [
                     self._velero_binary_path,
@@ -215,6 +217,7 @@ class Velero:
                     VELERO_BACKUP_LOCATION_NAME,
                     "--provider",
                     storage_provider.plugin,
+                    *prefix,
                     "--bucket",
                     storage_provider.bucket,
                     "--config",
