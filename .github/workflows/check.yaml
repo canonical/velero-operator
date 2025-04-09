@@ -54,6 +54,10 @@ jobs:
         microk8s-addons: "dns storage rbac metallb:10.64.140.43-10.64.140.49"
 
     - name: Run integration tests
+      env:
+        AZURE_SECRET_KEY: ${{ secrets.AZURE_SECRET_KEY }}
+        AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+        AZURE_CONTAINER: ${{ secrets.AZURE_CONTAINER }}
       run: tox -vve integration -- --model testing
 
     # On failure, capture debugging resources
