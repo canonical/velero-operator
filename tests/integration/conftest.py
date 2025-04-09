@@ -7,12 +7,12 @@ import logging
 import os
 import socket
 import subprocess
-import time
 import uuid
 
 import boto3
 import botocore.exceptions
 import pytest
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 logger = logging.getLogger(__name__)
 MICROCEPH_BUCKET = "testbucket"
@@ -38,9 +38,30 @@ def is_ci() -> bool:
     return os.environ.get("CI") == "true"
 
 
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_fixed(1),
+    retry=retry_if_exception_type(botocore.exceptions.EndpointConnectionError),
+    reraise=True,
+)
+def create_microceph_bucket(
+    bucket_name: str, access_key: str, secret_key: str, endpoint: str
+) -> None:
+    """Attempt to create a bucket in MicroCeph with retry logic."""
+    logger.info("Attempting to create microceph bucket")
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+    )
+    s3_client.create_bucket(Bucket=bucket_name)
+
+
 def setup_microceph() -> S3ConnectionInfo:
     """Set up microceph for testing."""
     logger.info("Setting up microceph")
+
     subprocess.run(["sudo", "snap", "install", "microceph"], check=True)
     subprocess.run(["sudo", "microceph", "cluster", "bootstrap"], check=True)
     subprocess.run(["sudo", "microceph", "disk", "add", "loop,4G,3"], check=True)
@@ -62,34 +83,32 @@ def setup_microceph() -> S3ConnectionInfo:
         check=True,
         encoding="utf-8",
     ).stdout
+
     key = json.loads(output)["keys"][0]
     access_key = key["access_key"]
     secret_key = key["secret_key"]
+
     logger.info("Creating microceph bucket")
-    for attempt in range(3):
-        try:
-            boto3.client(
-                "s3",
-                endpoint_url="http://localhost",
-                aws_access_key_id=access_key,
-                aws_secret_access_key=secret_key,
-            ).create_bucket(Bucket=MICROCEPH_BUCKET)
-        except botocore.exceptions.EndpointConnectionError:
-            if attempt == 2:
-                raise
-            logger.info("Unable to connect to microceph via S3. Retrying")
-            time.sleep(1)
-        else:
-            break
-    logger.info("Set up microceph")
+    create_microceph_bucket(
+        MICROCEPH_BUCKET, access_key, secret_key, f"http://localhost:{MICROCEPH_RGW_PORT}"
+    )
+
+    logger.info("Set up microceph successfully")
     return S3ConnectionInfo(access_key, secret_key, MICROCEPH_BUCKET)
+
+
+_microceph_cache: S3ConnectionInfo | None = None
 
 
 @pytest.fixture()
 def s3_connection_info() -> S3ConnectionInfo:
     """Return S3 connection info based on environment."""
+    global _microceph_cache
+
     if is_ci():
-        return setup_microceph()
+        if _microceph_cache is None:
+            _microceph_cache = setup_microceph()
+        return _microceph_cache
 
     required_env_vars = ["AWS_ACCESS_KEY", "AWS_SECRET_KEY", "AWS_BUCKET"]
     missing_or_empty = [var for var in required_env_vars if not os.environ.get(var)]
@@ -123,7 +142,7 @@ def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
     }
 
     if is_ci():
-        config["endpoint"] = f"http://{socket.gethostname():}{MICROCEPH_RGW_PORT}"
+        config["endpoint"] = f"http://{socket.gethostname()}:{MICROCEPH_RGW_PORT}"
         config["s3-uri-style"] = "path"
     else:
         config["endpoint"] = "https://s3.amazonaws.com"

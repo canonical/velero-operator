@@ -69,11 +69,8 @@ def get_model(ops_test: OpsTest) -> Model:
     return model
 
 
-# TODO: Setup microceph bucket here, instead of during the s3-integrator setup.
-# If we use s3-cloud-credentials/s3-cloud-configs fixture here, to validate the env vars,
-# `microceph_setup` will be called twice.
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy(ops_test: OpsTest):
+async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info):
     """Build the charm-under-test and deploy it.
 
     Assert on the unit status being blocked due to lack of trust.
