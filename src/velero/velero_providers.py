@@ -5,6 +5,7 @@
 
 import base64
 from abc import ABC, abstractmethod
+from enum import Enum
 from typing import Dict, Optional, Type
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -20,12 +21,14 @@ class StorageConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     @classmethod
-    def get_required(cls) -> str:
-        """Return a string representation of the model."""
-        required_fields = [
-            f.alias or name for name, f in cls.model_fields.items() if f.is_required()
-        ]
-        return f"{cls.__name__} required fields: {", ".join(required_fields)}"
+    def verror_to_str(cls, ve: ValidationError) -> str:
+        """Convert a Pydantic ValidationError to a string."""
+        error_messages = []
+        for error in ve.errors():
+            field = ".".join(map(str, error["loc"]))
+            message = error["msg"].replace("Field ", "")
+            error_messages.append(f"'{field}' {message}")
+        return f"{cls.__name__} errors: " + "; ".join(error_messages)
 
 
 class VeleroStorageProvider(ABC):
@@ -38,7 +41,7 @@ class VeleroStorageProvider(ABC):
         try:
             self._config = config_cls(**data)
         except ValidationError as ve:
-            raise StorageProviderError(config_cls.get_required()) from ve
+            raise StorageProviderError(config_cls.verror_to_str(ve)) from ve
 
     @property
     @abstractmethod
@@ -80,13 +83,21 @@ class VeleroStorageProvider(ABC):
         return base64.b64encode(secret.encode("utf-8")).decode("utf-8")
 
 
-class S3Config(StorageConfig):
+class S3UriStyle(str, Enum):
+    """Enum for S3 URI styles."""
+
+    PATH = "path"
+    VIRTUAL_HOSTED = "virtual"
+
+
+class S3StorageConfig(StorageConfig):
     """Pydantic model for S3 storage config."""
 
     bucket: str
     region: Optional[str] = Field(None, alias="region")
     endpoint: Optional[str] = Field(None, alias="endpoint")
     path: Optional[str] = Field(None, alias="path")
+    s3_uri_style: Optional[S3UriStyle] = Field(None, alias="s3-uri-style")
     access_key: str = Field(alias="access-key")
     secret_key: str = Field(alias="secret-key")
 
@@ -95,8 +106,8 @@ class S3StorageProvider(VeleroStorageProvider):
     """S3 storage provider for Velero."""
 
     def __init__(self, plugin_image: str, data: Dict[str, str]) -> None:
-        self._config: S3Config
-        super().__init__(plugin_image, data, S3Config)
+        self._config: S3StorageConfig
+        super().__init__(plugin_image, data, S3StorageConfig)
 
     @property
     def plugin(self) -> str:
@@ -131,10 +142,12 @@ class S3StorageProvider(VeleroStorageProvider):
             flags["s3Url"] = f"{self._config.endpoint}"
         if self._config.region is not None:
             flags["region"] = f"{self._config.region}"
+        if self._config.s3_uri_style == S3UriStyle.PATH:
+            flags["s3ForcePathStyle"] = "true"
         return flags
 
 
-class AzureConfig(StorageConfig):
+class AzureStorageConfig(StorageConfig):
     """Pydantic model for Azure storage config."""
 
     container: str
@@ -147,8 +160,8 @@ class AzureStorageProvider(VeleroStorageProvider):
     """Azure storage provider for Velero."""
 
     def __init__(self, plugin_image: str, data: Dict[str, str]) -> None:
-        self._config: AzureConfig
-        super().__init__(plugin_image, data, AzureConfig)
+        self._config: AzureStorageConfig
+        super().__init__(plugin_image, data, AzureStorageConfig)
 
     @property
     def plugin(self) -> str:

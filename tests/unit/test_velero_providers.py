@@ -10,12 +10,14 @@ from velero import (
     S3StorageProvider,
     StorageProviderError,
 )
+from velero.velero_providers import AzureStorageConfig, S3StorageConfig
 
 # Valid S3 input data
 s3_data_1 = {
     "bucket": "test-bucket",
     "access-key": "test-access-key",
     "secret-key": "test-secret-key",
+    "s3-uri-style": "path",
 }
 s3_data_2 = {
     "region": "us-east-1",
@@ -37,7 +39,7 @@ azure_data = {
 @pytest.mark.parametrize(
     "s3_data, expected_config",
     [
-        (s3_data_1, {}),
+        (s3_data_1, {"s3ForcePathStyle": "true"}),
         (s3_data_2, {"region": "us-east-1", "s3Url": "https://s3.amazonaws.com"}),
     ],
 )
@@ -62,10 +64,22 @@ def test_s3_storage_provider_success(s3_data, expected_config):
 
 
 def test_s3_storage_provider_invalid_data():
-    """Test S3 storage provider initialization with missing required fields."""
+    """Test S3 storage provider initialization with invalid data."""
     with pytest.raises(StorageProviderError) as exc_info:
         S3StorageProvider("s3-plugin-image", {"region": "us-west-1"})
-    assert "S3Config required fields" in str(exc_info.value)
+    assert f"{S3StorageConfig.__name__} errors:" in str(exc_info.value)
+
+    with pytest.raises(StorageProviderError) as exc_info:
+        S3StorageProvider(
+            "s3-plugin-image",
+            {
+                "secret-key": "secret",
+                "access-key": "access",
+                "bucket": "bucket",
+                "s3-uri-style": "invalid",
+            },
+        )
+    assert f"{S3StorageConfig.__name__} errors: 's3-uri-style'" in str(exc_info.value)
 
 
 def test_azure_storage_provider_success():
@@ -94,4 +108,4 @@ def test_azure_storage_provider_invalid_data():
     """Test Azure storage provider initialization with missing required fields."""
     with pytest.raises(StorageProviderError) as exc_info:
         AzureStorageProvider("azure-plugin-image", {"storage-account": "missing-container"})
-    assert "AzureConfig required fields" in str(exc_info.value)
+    assert f"{AzureStorageConfig.__name__} errors:" in str(exc_info.value)

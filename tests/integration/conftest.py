@@ -16,6 +16,7 @@ import pytest
 
 logger = logging.getLogger(__name__)
 MICROCEPH_BUCKET = "testbucket"
+MICROCEPH_RGW_PORT = 7480
 
 
 @dataclasses.dataclass(frozen=True)
@@ -43,7 +44,9 @@ def setup_microceph() -> S3ConnectionInfo:
     subprocess.run(["sudo", "snap", "install", "microceph"], check=True)
     subprocess.run(["sudo", "microceph", "cluster", "bootstrap"], check=True)
     subprocess.run(["sudo", "microceph", "disk", "add", "loop,4G,3"], check=True)
-    subprocess.run(["sudo", "microceph", "enable", "rgw"], check=True)
+    subprocess.run(
+        ["sudo", "microceph", "enable", "rgw", "--port", str(MICROCEPH_RGW_PORT)], check=True
+    )
     output = subprocess.run(
         [
             "sudo",
@@ -120,7 +123,8 @@ def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
     }
 
     if is_ci():
-        config["endpoint"] = f"http://{socket.gethostbyname(socket.gethostname())}"
+        config["endpoint"] = f"http://{socket.gethostname():}{MICROCEPH_RGW_PORT}"
+        config["s3-uri-style"] = "path"
     else:
         config["endpoint"] = "https://s3.amazonaws.com"
         config["region"] = os.environ.get("AWS_REGION", "us-east-2")
