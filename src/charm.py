@@ -139,6 +139,9 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 )
                 return
 
+        # TODO: Avoid running on duplicate events
+        # When the relation is created/joined, where will be two RelationChangedEvents
+        # triggered, so the remove/configure logic is called twice.
         if isinstance(event, (ops.RelationBrokenEvent, ops.RelationChangedEvent)):
             try:
                 self.velero.remove_storage_locations(self.lightkube_client)

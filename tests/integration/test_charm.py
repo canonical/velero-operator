@@ -69,6 +69,9 @@ def get_model(ops_test: OpsTest) -> Model:
     return model
 
 
+# TODO: Setup microceph bucket here, instead of during the s3-integrator setup.
+# If we use s3-cloud-credentials/s3-cloud-configs fixture here, to validate the env vars,
+# `microceph_setup` will be called twice.
 @pytest.mark.abort_on_fail
 async def test_build_and_deploy(ops_test: OpsTest):
     """Build the charm-under-test and deploy it.
@@ -190,8 +193,8 @@ async def test_multiple_integrator_relations(ops_test: OpsTest):
 
     model = get_model(ops_test)
 
-    await model.relate(APP_NAME, S3_INTEGRATOR)
-    await model.relate(APP_NAME, AZURE_INTEGRATOR)
+    await model.integrate(APP_NAME, S3_INTEGRATOR)
+    await model.integrate(APP_NAME, AZURE_INTEGRATOR)
     await model.wait_for_idle(
         apps=[APP_NAME],
         status="blocked",
@@ -224,8 +227,8 @@ async def test_relate_azure_integrator(ops_test: OpsTest):
 
     model = get_model(ops_test)
 
-    await model.relate(APP_NAME, AZURE_INTEGRATOR)
-    async with ops_test.fast_forward():
+    await model.integrate(APP_NAME, AZURE_INTEGRATOR)
+    async with ops_test.fast_forward(fast_interval="60s"):
         await model.wait_for_idle(
             apps=[APP_NAME],
             status="active",
@@ -263,7 +266,7 @@ async def test_relate_s3_integrator(ops_test: OpsTest):
     model = get_model(ops_test)
 
     await model.integrate(APP_NAME, S3_INTEGRATOR)
-    async with ops_test.fast_forward():
+    async with ops_test.fast_forward(fast_interval="60s"):
         await model.wait_for_idle(
             apps=[APP_NAME],
             status="active",
