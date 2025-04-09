@@ -208,6 +208,7 @@ class Velero:
             config_flags = ",".join(
                 [f"{key}={value}" for key, value in storage_provider.config_flags.items()]
             )
+            config = ["--config", config_flags] if config_flags else []
             prefix = ["--prefix", storage_provider.path] if storage_provider.path else []
             subprocess.run(
                 [
@@ -220,8 +221,7 @@ class Velero:
                     *prefix,
                     "--bucket",
                     storage_provider.bucket,
-                    "--config",
-                    config_flags,
+                    *config,
                     f"--credential={VELERO_SECRET_NAME}={VELERO_SECRET_KEY}",
                     "--default",
                     f"--namespace={self._namespace}",

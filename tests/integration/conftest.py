@@ -114,19 +114,18 @@ def s3_cloud_credentials(s3_connection_info: S3ConnectionInfo) -> dict[str, str]
 @pytest.fixture()
 def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
     """Return cloud configs for S3."""
-    if is_ci():
-        endpoint = f"http://{socket.gethostbyname(socket.gethostname())}"
-        region = ""
-    else:
-        endpoint = "https://s3.amazonaws.com"
-        region = os.environ.get("AWS_REGION", "us-east-2")
-
-    return {
-        "endpoint": endpoint,
+    config = {
         "bucket": s3_connection_info.bucket,
         "path": f"velero/{uuid.uuid4()}",
-        "region": region,
     }
+
+    if is_ci():
+        config["endpoint"] = f"http://{socket.gethostbyname(socket.gethostname())}"
+    else:
+        config["endpoint"] = "https://s3.amazonaws.com"
+        config["region"] = os.environ.get("AWS_REGION", "us-east-2")
+
+    return config
 
 
 @pytest.fixture()

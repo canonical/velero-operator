@@ -83,8 +83,8 @@ class VeleroStorageProvider(ABC):
 class S3Config(StorageConfig):
     """Pydantic model for S3 storage config."""
 
-    region: str
     bucket: str
+    region: Optional[str] = Field(None, alias="region")
     endpoint: Optional[str] = Field(None, alias="endpoint")
     path: Optional[str] = Field(None, alias="path")
     access_key: str = Field(alias="access-key")
@@ -126,9 +126,11 @@ class S3StorageProvider(VeleroStorageProvider):
     @property
     def config_flags(self) -> Dict[str, str]:
         """Return the configuration flags for S3 storage provider."""
-        flags = {"region": self._config.region}
+        flags = {}
         if self._config.endpoint is not None:
             flags["s3Url"] = f"{self._config.endpoint}"
+        if self._config.region is not None:
+            flags["region"] = f"{self._config.region}"
         return flags
 
 

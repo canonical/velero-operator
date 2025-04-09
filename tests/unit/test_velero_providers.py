@@ -13,7 +13,6 @@ from velero import (
 
 # Valid S3 input data
 s3_data_1 = {
-    "region": "us-east-1",
     "bucket": "test-bucket",
     "access-key": "test-access-key",
     "secret-key": "test-secret-key",
@@ -38,7 +37,7 @@ azure_data = {
 @pytest.mark.parametrize(
     "s3_data, expected_config",
     [
-        (s3_data_1, {"region": "us-east-1"}),
+        (s3_data_1, {}),
         (s3_data_2, {"region": "us-east-1", "s3Url": "https://s3.amazonaws.com"}),
     ],
 )
