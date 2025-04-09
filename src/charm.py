@@ -157,7 +157,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             try:
                 self._configure_storage_locations()
             except StorageProviderError as ve:
-                self._log_and_set_status(ops.BlockedStatus(str(ve)))
+                self._log_and_set_status(ops.BlockedStatus(f"Invalid configuration: {str(ve)}"))
                 return
             except VeleroError:
                 self._log_and_set_status(
@@ -191,9 +191,6 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         Raises:
             VeleroError: If the configuration of Velero fails
         """
-        if self.has_many_storage_relations:
-            return
-
         self._log_and_set_status(
             ops.MaintenanceStatus("Configuring Velero Storage Provider on the cluster")
         )
@@ -207,7 +204,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 self.config.velero_azure_plugin_image,
                 self.azure_integrator.get_azure_connection_info(),
             )
-        else:
+        else:  # pragma: no cover
             raise ValueError("Unsupported storage provider or no provider configured.")
 
         self.velero.configure_storage_locations(self.lightkube_client, provider)
