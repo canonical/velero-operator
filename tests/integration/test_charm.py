@@ -77,7 +77,7 @@ async def test_build_and_deploy(ops_test: OpsTest, s3_cloud_credentials, s3_clou
     logger.info(f"Launching test pod to verify connectivity to {endpoint}")
     try:
         cmd = [
-            "microk8s", "kubectl", "run", "--rm", "-i", "--tty",
+            "kubectl", "run", "--rm", "-i", "--tty",
             "connectivity-test",
             "--image=busybox",
             "--restart=Never",
