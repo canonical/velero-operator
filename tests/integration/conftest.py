@@ -37,6 +37,15 @@ def is_ci() -> bool:
     """Detect whether we're running in a CI environment."""
     return os.environ.get("CI") == "true"
 
+def get_host_ip() -> str:
+    """Figure out the host IP address accessible from pods in CI."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("1.1.1.1", 80))
+        ip = s.getsockname()[0]
+    finally:
+        s.close()
+    return ip
 
 @retry(
     stop=stop_after_attempt(5),
@@ -142,7 +151,7 @@ def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
     }
 
     if is_ci():
-        config["endpoint"] = f"http://{socket.gethostname()}:{MICROCEPH_RGW_PORT}"
+        config["endpoint"] = f"http://{get_host_ip()}:{MICROCEPH_RGW_PORT}"
         config["s3-uri-style"] = "path"
     else:
         config["endpoint"] = "https://s3.amazonaws.com"

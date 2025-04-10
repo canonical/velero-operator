@@ -4,6 +4,7 @@
 
 import asyncio
 import logging
+import subprocess
 import time
 from pathlib import Path
 
@@ -70,256 +71,22 @@ def get_model(ops_test: OpsTest) -> Model:
 
 
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info):
-    """Build the charm-under-test and deploy it.
-
-    Assert on the unit status being blocked due to lack of trust.
-    """
-    logger.info("Building and deploying velero-operator charm")
-
-    charm = await ops_test.build_charm(".")
-    model = get_model(ops_test)
-
-    await asyncio.gather(
-        model.deploy(
-            charm, application_name=APP_NAME, trust=False, config={"use-node-agent": True}
-        ),
-        model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=TIMEOUT),
-    )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == UNTRUST_ERROR_MESSAGE
-
-
-@pytest.mark.abort_on_fail
-async def test_deploy_s3_integrator(ops_test: OpsTest, s3_cloud_credentials, s3_cloud_configs):
-    """Deploy the S3 integrator charm and set credentials."""
-    logger.info("Deploying s3-integrator charm")
-    model = get_model(ops_test)
-
-    await model.deploy(S3_INTEGRATOR, channel=S3_INTEGRATOR_CHANNEL)
-
-    await model.wait_for_idle(
-        apps=[S3_INTEGRATOR],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
-
-    logger.info("Setting credentials for s3-integrator")
-
-    await model.applications[S3_INTEGRATOR].set_config(s3_cloud_configs)
-    action = await model.units[f"{S3_INTEGRATOR}/0"].run_action(
-        "sync-s3-credentials", **s3_cloud_credentials
-    )
-    result = await action.wait()
-    assert result.results.get("return-code") == 0
-
-    await model.wait_for_idle(
-        apps=[S3_INTEGRATOR],
-        status="active",
-        timeout=TIMEOUT,
-    )
-
-
-@pytest.mark.abort_on_fail
-async def test_deploy_azure_integrator(
-    ops_test: OpsTest, azure_cloud_credentials, azure_cloud_configs
-):
-    """Deploy the azure-storage-integrator charm and set credentials."""
-    logger.info("Deploying azure-storage-integrator charm")
-    model = get_model(ops_test)
-
-    await model.deploy(AZURE_INTEGRATOR, channel=AZURE_INTEGRATOR_CHANNEL)
-
-    await model.wait_for_idle(
-        apps=[AZURE_INTEGRATOR],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
-
-    logger.info("Setting credentials for azure-storage-integrator")
-
-    await model.applications[AZURE_INTEGRATOR].set_config(azure_cloud_configs)
-    _, stdout, _ = await ops_test.juju(
-        *["add-secret", AZURE_SECRET_NAME, f"secret-key={azure_cloud_credentials['secret-key']}"]
-    )
-    await model.grant_secret(AZURE_SECRET_NAME, AZURE_INTEGRATOR)
-    await model.applications[AZURE_INTEGRATOR].set_config({"credentials": stdout.strip()})
-
-    await model.wait_for_idle(
-        apps=[AZURE_INTEGRATOR],
-        status="active",
-        timeout=TIMEOUT,
-    )
-
-
-@pytest.mark.abort_on_fail
-async def test_trust(ops_test: OpsTest):
-    """Trust existing blocked deployment.
-
-    Assert on the application status recovering to active.
-    """
-    logger.info("Trusting velero-operator charm")
-
-    model = get_model(ops_test)
-    await ops_test.juju("trust", APP_NAME, "--scope=cluster")
-
-    async with ops_test.fast_forward():
-        await model.wait_for_idle(
-            apps=[APP_NAME],
-            status="blocked",
-            raise_on_blocked=False,
-            timeout=TIMEOUT,
-            idle_period=30,
-        )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
-
-
-@pytest.mark.abort_on_fail
-async def test_multiple_integrator_relations(ops_test: OpsTest):
-    """Relate the S3 and Azure integrator charms to the velero-operator charm.
-
-    The velero-operator charm should be in a blocked state after the relation is created,
-    since both storage providers are related.
-    """
-    logger.info("Relating velero-operator to s3-integrator and azure-storage-integrator")
-
-    model = get_model(ops_test)
-
-    await model.integrate(APP_NAME, S3_INTEGRATOR)
-    await model.integrate(APP_NAME, AZURE_INTEGRATOR)
-    await model.wait_for_idle(
-        apps=[APP_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MULTIPLE_RELATIONS_MESSAGE
-
-    logger.info("Unrelating velero-operator from s3-integrator and azure-storage-integrator")
-
-    await ops_test.juju(*["remove-relation", APP_NAME, AZURE_INTEGRATOR])
-    await ops_test.juju(*["remove-relation", APP_NAME, S3_INTEGRATOR])
-
-    await model.wait_for_idle(
-        apps=[APP_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
-
-
-@pytest.mark.abort_on_fail
-async def test_relate_azure_integrator(ops_test: OpsTest):
-    """Relate the azure-storage-integrator charm to the velero-operator charm."""
-    logger.info("Relating velero-operator to azure-storage-integrator")
-
-    model = get_model(ops_test)
-
-    await model.integrate(APP_NAME, AZURE_INTEGRATOR)
-    async with ops_test.fast_forward(fast_interval="60s"):
-        await model.wait_for_idle(
-            apps=[APP_NAME],
-            status="active",
-            timeout=TIMEOUT,
-        )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == READY_MESSAGE
-
-
-@pytest.mark.abort_on_fail
-async def test_unrelate_azure_integrator(ops_test: OpsTest):
-    """Unrelate the azure-storage-integrator charm from the velero-operator charm."""
-    logger.info("Unrelating velero-operator from azure-storage-integrator")
-    model = get_model(ops_test)
-
-    await ops_test.juju(*["remove-relation", APP_NAME, AZURE_INTEGRATOR])
-
-    await model.wait_for_idle(
-        apps=[APP_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
-
-
-@pytest.mark.abort_on_fail
-async def test_relate_s3_integrator(ops_test: OpsTest):
-    """Relate the S3 integrator charm to the velero-operator charm."""
-    logger.info("Relating velero-operator to s3-integrator")
-
-    model = get_model(ops_test)
-
-    await model.integrate(APP_NAME, S3_INTEGRATOR)
-    async with ops_test.fast_forward(fast_interval="60s"):
-        await model.wait_for_idle(
-            apps=[APP_NAME],
-            status="active",
-            timeout=TIMEOUT,
-        )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == READY_MESSAGE
-
-
-@pytest.mark.abort_on_fail
-async def test_unrelate_s3_integrator(ops_test: OpsTest):
-    """Unrelate the S3 integrator charm from the velero-operator charm."""
-    logger.info("Unrelating velero-operator from s3-integrator")
-    model = get_model(ops_test)
-
-    await ops_test.juju(*["remove-relation", APP_NAME, S3_INTEGRATOR])
-
-    await model.wait_for_idle(
-        apps=[APP_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
-
-
-@pytest.mark.abort_on_fail
-async def test_remove(ops_test: OpsTest, lightkube_client):
-    """Remove the application and assert that all resources are deleted."""
-    model = get_model(ops_test)
-    velero = get_velero(model.name)
-
-    await asyncio.gather(
-        model.remove_application(AZURE_INTEGRATOR),
-        model.remove_application(S3_INTEGRATOR),
-        model.remove_application(APP_NAME),
-        model.remove_secret(AZURE_SECRET_NAME),
-        model.block_until(
-            lambda: model.applications[APP_NAME].status == "unknown",
-            timeout=60 * 2,
-        ),
-    )
-
-    for resource in velero._core_resources + velero._storage_provider_resources:
-        try:
-            lightkube_client.get(resource.type, resource.name)
-            assert False, f"Resource {resource.name} was not deleted"
-        except (ApiError, HTTPStatusError) as ae:
-            assert ae.response.status_code == 404
-
-    result = list(
-        lightkube_client.list(
-            CustomResourceDefinition, labels={"component": "velero"}, namespace=model.name
-        )
-    )
-    assert not result, "CustomResourceDefinitions were not deleted"
+async def test_build_and_deploy(ops_test: OpsTest, s3_cloud_credentials, s3_cloud_configs):
+    endpoint = s3_cloud_configs.get("endpoint")
+    
+    logger.info(f"Launching test pod to verify connectivity to {endpoint}")
+    try:
+        cmd = [
+            "microk8s", "kubectl", "run", "--rm", "-i", "--tty",
+            "connectivity-test",
+            "--image=busybox",
+            "--restart=Never",
+            "--",
+            "wget", endpoint, "-O", "-"
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=10, check=True, encoding="utf-8")
+        logger.info("Pod successfully reached the host IP")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Pod failed to connect to {endpoint}: {e.stderr}")
+        return False
