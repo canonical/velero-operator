@@ -21,7 +21,7 @@ from velero import Velero
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT = 60 * 30
+TIMEOUT = 60 * 5
 USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
