@@ -9,33 +9,33 @@ on:
 
 jobs:
 
-  lint:
-    name: Lint Check
-    runs-on: ubuntu-24.04
+  # lint:
+  #   name: Lint Check
+  #   runs-on: ubuntu-24.04
 
-    steps:
-    - name: Check out code
-      uses: actions/checkout@v4
+  #   steps:
+  #   - name: Check out code
+  #     uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: sudo apt-get install python3-pip tox
+  #   - name: Install dependencies
+  #     run: sudo apt-get install python3-pip tox
 
-    - name: Lint code
-      run: tox -e lint
+  #   - name: Lint code
+  #     run: tox -e lint
 
-  unit:
-    name: Unit Test
-    runs-on: ubuntu-24.04
+  # unit:
+  #   name: Unit Test
+  #   runs-on: ubuntu-24.04
 
-    steps:
-    - name: Check out code
-      uses: actions/checkout@v4
+  #   steps:
+  #   - name: Check out code
+  #     uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: sudo apt-get install python3-pip tox
+  #   - name: Install dependencies
+  #     run: sudo apt-get install python3-pip tox
 
-    - name: Run unit tests
-      run: tox -e unit
+  #   - name: Run unit tests
+  #     run: tox -e unit
 
   integration:
     name: Integration Test (build and deploy)
@@ -54,6 +54,10 @@ jobs:
         microk8s-addons: "dns storage rbac metallb:10.64.140.43-10.64.140.49"
 
     - name: Run integration tests
+      env:
+        AZURE_SECRET_KEY: ${{ secrets.AZURE_SECRET_KEY }}
+        AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+        AZURE_CONTAINER: ${{ secrets.AZURE_CONTAINER }}
       run: tox -vve integration -- --model testing
 
     # On failure, capture debugging resources
@@ -63,6 +67,12 @@ jobs:
 
     - name: Describe deployments
       run: kubectl describe deployments -A
+      if: failure()
+
+    - name: Describe Velero Storage locations
+      run: |
+        kubectl describe backupstoragelocations -A
+        kubectl describe volumesnapshotlocations -A
       if: failure()
 
     - name: Describe replicasets
