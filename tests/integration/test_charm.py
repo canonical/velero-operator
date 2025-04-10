@@ -85,8 +85,8 @@ async def test_build_and_deploy(ops_test: OpsTest, s3_cloud_credentials, s3_clou
             "wget", endpoint, "-O", "-"
         ]
         result = subprocess.run(cmd, capture_output=True, timeout=10, check=True, encoding="utf-8")
+        logger.info(f"Pod output: {result.stdout}")
         logger.info("Pod successfully reached the host IP")
-        return True
     except subprocess.CalledProcessError as e:
         logger.warning(f"Pod failed to connect to {endpoint}: {e.stderr}")
-        return False
+        assert False
