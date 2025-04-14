@@ -94,17 +94,18 @@ async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info, azure_con
 
 
 @pytest.mark.abort_on_fail
-async def test_configure_integrators(
+async def test_configure_s3_integrator(
     ops_test: OpsTest,
     s3_cloud_credentials,
     s3_cloud_configs,
-    azure_cloud_credentials,
-    azure_cloud_configs,
 ):
-    """Configure the integrator charms with the credentials and configs."""
+    """Configure the integrator charm with the credentials and configs."""
+    if s3_cloud_credentials is None or s3_cloud_configs is None:
+        pytest.skip("S3 connection info is not available")
+
     model = get_model(ops_test)
 
-    logger.info("Setting credentials for s3-integrator")
+    logger.info("Setting credentials for %s", S3_INTEGRATOR)
     await model.applications[S3_INTEGRATOR].set_config(s3_cloud_configs)
     action = await model.units[f"{S3_INTEGRATOR}/0"].run_action(
         "sync-s3-credentials", **s3_cloud_credentials
@@ -112,7 +113,27 @@ async def test_configure_integrators(
     result = await action.wait()
     assert result.results.get("return-code") == 0
 
-    logger.info("Setting credentials for azure-storage-integrator")
+    logger.info("Waiting for %s to be active", S3_INTEGRATOR)
+    await model.wait_for_idle(
+        apps=[S3_INTEGRATOR],
+        status="active",
+        timeout=TIMEOUT,
+    )
+
+
+@pytest.mark.abort_on_fail
+async def test_configure_azure_integrator(
+    ops_test: OpsTest,
+    azure_cloud_credentials,
+    azure_cloud_configs,
+):
+    """Configure the integrator charm with the credentials and configs."""
+    if azure_cloud_credentials is None or azure_cloud_configs is None:
+        pytest.skip("Azure connection info is not available")
+
+    model = get_model(ops_test)
+
+    logger.info("Setting credentials for %s", AZURE_INTEGRATOR)
     await model.applications[AZURE_INTEGRATOR].set_config(azure_cloud_configs)
     _, stdout, _ = await ops_test.juju(
         *["add-secret", AZURE_SECRET_NAME, f"secret-key={azure_cloud_credentials['secret-key']}"]
@@ -120,9 +141,9 @@ async def test_configure_integrators(
     await model.grant_secret(AZURE_SECRET_NAME, AZURE_INTEGRATOR)
     await model.applications[AZURE_INTEGRATOR].set_config({"credentials": stdout.strip()})
 
-    logger.info("Waiting for integrators to be active")
+    logger.info("Waiting for %s to be active", AZURE_INTEGRATOR)
     await model.wait_for_idle(
-        apps=[S3_INTEGRATOR, AZURE_INTEGRATOR],
+        apps=[AZURE_INTEGRATOR],
         status="active",
         timeout=TIMEOUT,
     )
@@ -191,8 +212,15 @@ async def test_multiple_integrator_relations(ops_test: OpsTest):
         AZURE_INTEGRATOR,
     ],
 )
-async def test_integrator_relation(ops_test: OpsTest, integrator: str):
+async def test_integrator_relation(
+    ops_test: OpsTest, integrator: str, azure_connection_info, s3_connection_info
+):
     """Test the relation between the velero-operator charm and the integrator charm."""
+    if integrator == S3_INTEGRATOR and s3_connection_info is None:
+        pytest.skip("S3 connection info is not available")
+    if integrator == AZURE_INTEGRATOR and azure_connection_info is None:
+        pytest.skip("Azure connection info is not available")
+
     model = get_model(ops_test)
 
     logger.info("Relating velero-operator to %s", integrator)
@@ -220,7 +248,7 @@ async def test_integrator_relation(ops_test: OpsTest, integrator: str):
 
 @pytest.mark.abort_on_fail
 async def test_remove(ops_test: OpsTest, lightkube_client):
-    """Remove the application and assert that all resources are deleted."""
+    """Remove the applications and assert that all resources are deleted."""
     model = get_model(ops_test)
     velero = get_velero(model.name)
 
@@ -231,7 +259,7 @@ async def test_remove(ops_test: OpsTest, lightkube_client):
         model.remove_application(APP_NAME),
         model.block_until(
             lambda: model.applications[APP_NAME].status == "unknown",
-            timeout=60 * 2,
+            timeout=TIMEOUT,
         ),
     )
 
