@@ -370,8 +370,8 @@ def test_remove_api_error(caplog, mock_lightkube_client, velero, mock_velero_all
     assert "Failed to delete Deployment 'error-resource' resource:" in caplog.text
 
 
-@patch("velero.velero.subprocess.check_output")
-@patch("velero.velero.codecs.load_all_yaml")
+@patch("velero.core.subprocess.check_output")
+@patch("velero.core.codecs.load_all_yaml")
 def test_crds_property_success(mock_load_all_yaml, mock_check_output, velero):
     mock_check_output.return_value = "fake-yaml-output"
     mock_load_all_yaml.return_value = [
@@ -385,9 +385,7 @@ def test_crds_property_success(mock_load_all_yaml, mock_check_output, velero):
     assert len(crds) == 2
 
 
-@patch(
-    "velero.velero.subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "cmd")
-)
+@patch("velero.core.subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "cmd"))
 def test_crds_property_cmd_error(mock_check_output, velero):
     with pytest.raises(VeleroError):
         _ = velero._crds
@@ -501,7 +499,7 @@ def test_create_storage_secret_success(mock_lightkube_client, velero):
     mock_provider = MagicMock()
     mock_provider.secret_data = "test"
 
-    with patch("velero.velero.k8s_create_secret") as mock_k8s_create_secret:
+    with patch("velero.core.k8s_create_secret") as mock_k8s_create_secret:
         velero._create_storage_secret(mock_lightkube_client, mock_provider)
 
         mock_k8s_create_secret.assert_called_once_with(

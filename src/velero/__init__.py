@@ -3,8 +3,14 @@
 
 """Velero module."""
 
-from .velero import Velero, VeleroError
-from .velero_providers import AzureStorageProvider, S3StorageProvider, StorageProviderError
+from .core import Velero, VeleroError
+from .providers import (
+    AzureStorageConfig,
+    AzureStorageProvider,
+    S3StorageConfig,
+    S3StorageProvider,
+    StorageProviderError,
+)
 
 __all__ = [
     "Velero",
@@ -12,4 +18,6 @@ __all__ = [
     "S3StorageProvider",
     "AzureStorageProvider",
     "StorageProviderError",
+    "AzureStorageConfig",
+    "S3StorageConfig",
 ]

@@ -6,11 +6,12 @@ import base64
 import pytest
 
 from velero import (
+    AzureStorageConfig,
     AzureStorageProvider,
+    S3StorageConfig,
     S3StorageProvider,
     StorageProviderError,
 )
-from velero.velero_providers import AzureStorageConfig, S3StorageConfig
 
 # Valid S3 input data
 s3_data_1 = {

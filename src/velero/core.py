@@ -1,7 +1,7 @@
 # Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""Velero related code."""
+"""Velero Core library to interact with Velero CLI and Kubernetes resources."""
 
 import logging
 import subprocess
@@ -35,7 +35,7 @@ from k8s_utils import (
     k8s_retry_check,
 )
 
-from .velero_providers import VeleroStorageProvider
+from .providers import VeleroStorageProvider
 
 logger = logging.getLogger(__name__)
 
