@@ -468,8 +468,13 @@ def test_remove_storage_locations_api_error(
         assert (
             f"Failed to delete {resource.type.__name__} '{resource.name}' resource:" in caplog.text
         )
-
     mock_lightkube_client.patch.assert_not_called()
+
+    mock_lightkube_client.patch.side_effect = api_error
+    mock_lightkube_client.delete.side_effect = None
+    with pytest.raises(VeleroError):
+        velero.remove_storage_locations(mock_lightkube_client)
+        assert f"Failed to patch Deployment '{VELERO_DEPLOYMENT_NAME}' resource:" in caplog.text
 
 
 def test_configure_storage_locations_success(

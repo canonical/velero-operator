@@ -414,12 +414,17 @@ class Velero:
                     f"Failed to remove resource {resource.type.__name__}: {resource.name}"
                 ) from err
 
-        kube_client.patch(
-            Deployment,
-            VELERO_DEPLOYMENT_NAME,
-            {"spec": {"template": {"spec": {"initContainers": None}}}},
-            namespace=self._namespace,
-        )
+        try:
+            kube_client.patch(
+                Deployment,
+                VELERO_DEPLOYMENT_NAME,
+                {"spec": {"template": {"spec": {"initContainers": None}}}},
+                namespace=self._namespace,
+            )
+        except ApiError as err:
+            raise VeleroError(
+                f"Failed to patch deployment {VELERO_DEPLOYMENT_NAME}: {err}"
+            ) from err
 
     def remove(self, kube_client: Client) -> None:
         """Remove Velero resources from the cluster.
