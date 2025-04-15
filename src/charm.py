@@ -119,83 +119,81 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
     def _reconcile(self, event: ops.EventBase) -> None:
         """Reconcile the charm state."""
         if not self.velero.is_installed(self.lightkube_client, self.config.use_node_agent):
-            try:
-                self._install()
-            except VeleroError:
-                self._log_and_set_status(
-                    ops.BlockedStatus(
-                        "Failed to install Velero on the cluster. See juju debug-log for details."
-                    )
-                )
+            if not self._install():
+                return
+
+        if isinstance(event, ops.ConfigChangedEvent):
+            if not self._on_config_changed():
                 return
 
         # FIXME: Avoid running on duplicate events
         # When the relation is created/joined, where will be two RelationChangedEvents
         # triggered, so the remove/configure logic is called twice.
         if isinstance(event, (ops.RelationBrokenEvent, ops.RelationChangedEvent)):
-            try:
-                self.velero.remove_storage_locations(self.lightkube_client)
-            except VeleroError:
-                self._log_and_set_status(
-                    ops.BlockedStatus(
-                        (
-                            "Failed to delete Velero Storage Provider. "
-                            "See juju debug-log for details."
-                        )
-                    )
-                )
+            if not self._remove_storage_locations():
                 return
 
         if self.storage_relation and not self.velero.is_storage_configured(self.lightkube_client):
-            try:
-                self._configure_storage_locations()
-            except StorageProviderError as ve:
-                self._log_and_set_status(ops.BlockedStatus(f"Invalid configuration: {str(ve)}"))
-                return
-            except VeleroError:
-                self._log_and_set_status(
-                    ops.BlockedStatus(
-                        (
-                            "Failed to configure Velero Storage Provider. "
-                            "See juju debug-log for details."
-                        )
-                    )
-                )
+            if not self._configure_storage_locations():
                 return
 
         self._update_status()
 
-    def _install(self) -> None:
+    def _install(self) -> bool:
         """Handle the install event.
 
-        Raises:
-            VeleroError: If the installation of Velero fails
+        Returns:
+            bool: True if successful, False otherwise
         """
         self._log_and_set_status(ops.MaintenanceStatus("Deploying Velero on the cluster"))
 
-        self.velero.install(
-            self.config.velero_image,
-            self.config.use_node_agent,
-        )
+        try:
+            self.velero.install(
+                self.config.velero_image,
+                self.config.use_node_agent,
+            )
+            return True
+        except VeleroError:
+            self._log_and_set_status(
+                ops.BlockedStatus(
+                    "Failed to install Velero on the cluster. See juju debug-log for details."
+                )
+            )
+        return False
 
-    def _configure_storage_locations(self) -> None:
+    def _configure_storage_locations(self) -> bool:
         """Handle the configure event.
 
-        Raises:
-            VeleroError: If the configuration of Velero fails
+        Returns:
+            bool: True if successful, False otherwise
         """
         self._log_and_set_status(
             ops.MaintenanceStatus("Configuring Velero Storage Provider on the cluster")
         )
 
-        if self.storage_relation == StorageRelation.S3:
-            provider = S3StorageProvider(
-                self.config.velero_aws_plugin_image, self.s3_integrator.get_s3_connection_info()
-            )
-        else:  # pragma: no cover
-            raise ValueError("Unsupported storage provider or no provider configured.")
+        try:
+            if self.storage_relation == StorageRelation.S3:
+                provider = S3StorageProvider(
+                    self.config.velero_aws_plugin_image,
+                    self.s3_integrator.get_s3_connection_info(),
+                )
+            else:  # pragma: no cover
+                raise ValueError("Unsupported storage provider or no provider configured.")
 
-        self.velero.configure_storage_locations(self.lightkube_client, provider)
+            self.velero.configure_storage_locations(self.lightkube_client, provider)
+            return True
+        except StorageProviderError as ve:
+            self._log_and_set_status(ops.BlockedStatus(f"Invalid configuration: {str(ve)}"))
+        except VeleroError:
+            self._log_and_set_status(
+                ops.BlockedStatus(
+                    (
+                        "Failed to configure Velero Storage Provider. "
+                        "See juju debug-log for details."
+                    )
+                )
+            )
+        return False
 
     def _update_status(self) -> None:
         """Handle the update-status event."""
@@ -227,11 +225,59 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
         self._log_and_set_status(ops.ActiveStatus("Unit is Ready"))
 
+    def _remove_storage_locations(self) -> bool:
+        """Handle the remove-storage-locations event.
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        self._log_and_set_status(ops.MaintenanceStatus("Removing Velero Storage Provider"))
+
+        try:
+            self.velero.remove_storage_locations(self.lightkube_client)
+            return True
+        except VeleroError:
+            self._log_and_set_status(
+                ops.BlockedStatus(
+                    ("Failed to delete Velero Storage Provider. See juju debug-log for details.")
+                )
+            )
+        return False
+
     def _on_remove(self, event: ops.RemoveEvent) -> None:
         """Handle the remove event."""
         self._log_and_set_status(ops.MaintenanceStatus("Removing Velero from the cluster"))
 
         self.velero.remove(self.lightkube_client)
+
+    def _on_config_changed(self) -> bool:
+        """Handle the config-changed event.
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        self._log_and_set_status(ops.MaintenanceStatus("Updating Velero configuration"))
+
+        try:
+            if self.storage_relation == StorageRelation.S3:
+                self.velero.update_plugin_image(
+                    self.lightkube_client, self.config.velero_aws_plugin_image
+                )
+
+            if not self.config.use_node_agent:
+                self.velero.remove_node_agent(self.lightkube_client)
+
+            self.velero.update_velero_image(
+                self.lightkube_client, self.config.velero_image, self.config.use_node_agent
+            )
+            return True
+        except VeleroError:
+            self._log_and_set_status(
+                ops.BlockedStatus(
+                    "Failed to update Velero configuration. See juju debug-log for details."
+                )
+            )
+        return False
 
     # HELPER METHODS
 

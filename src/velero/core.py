@@ -10,10 +10,12 @@ from typing import Any, Dict, List
 from lightkube import Client, codecs
 from lightkube.core.exceptions import ApiError, LoadResourceError
 from lightkube.models.apps_v1 import DeploymentCondition
+from lightkube.models.core_v1 import ContainerStatus
 from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
-from lightkube.resources.core_v1 import Secret, ServiceAccount
+from lightkube.resources.core_v1 import Pod, Secret, ServiceAccount
 from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
+from lightkube.types import PatchType
 
 from constants import (
     VELERO_BACKUP_LOCATION_NAME,
@@ -346,6 +348,7 @@ class Velero:
         self._add_storage_plugin(storage_provider)
         self._add_backup_location(storage_provider)
         self._add_volume_snapshot_location(storage_provider)
+
         logger.info("Velero storage locations configured successfully")
 
     def install(self, velero_image: str, use_node_agent: bool) -> None:
@@ -383,7 +386,6 @@ class Velero:
             logging.error(error_msg)
             logging.error("stdout: %s", cpe.stdout)
             logging.error("stderr: %s", cpe.stderr)
-
             raise VeleroError(error_msg) from cpe
 
     def remove_storage_locations(self, kube_client: Client) -> None:
@@ -426,6 +428,114 @@ class Velero:
                 f"Failed to patch deployment {VELERO_DEPLOYMENT_NAME}: {err}"
             ) from err
 
+    def remove_node_agent(self, kube_client: Client) -> None:
+        """Remove the Velero node agent from the cluster.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+        """
+        remove_msg = f"Uninstalling the Velero NodeAgent from '{self._namespace}' namespace"
+        logger.info(remove_msg)
+
+        try:
+            k8s_remove_resource(
+                kube_client, K8sResource(VELERO_NODE_AGENT_NAME, DaemonSet), self._namespace
+            )
+        except ApiError as ae:
+            raise VeleroError("Failed to remove Velero NodeAgent") from ae
+
+    def update_velero_image(
+        self, kube_client: Client, new_image: str, use_node_agent: bool
+    ) -> None:
+        """Update the Velero Deployment and NodeAgent image.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            new_image (str): The new Velero image to use.
+            use_node_agent (bool): Whether to update the Velero node agent (DaemonSet).
+
+        Raises:
+            VeleroError: If the update fails.
+        """
+        new_deployment_spec = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": VELERO_NODE_AGENT_NAME,
+                                "image": new_image,
+                            }
+                        ]
+                    }
+                },
+                "strategy": {"type": "Recreate", "rollingUpdate": None},
+            }
+        }
+        new_node_agent_spec = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": VELERO_DEPLOYMENT_NAME,
+                                "image": new_image,
+                            }
+                        ]
+                    }
+                },
+                "strategy": {"type": "Recreate", "rollingUpdate": None},
+            }
+        }
+
+        try:
+            kube_client.patch(
+                Deployment,
+                VELERO_DEPLOYMENT_NAME,
+                new_deployment_spec,
+                namespace=self._namespace,
+            )
+            if use_node_agent:
+                kube_client.patch(
+                    DaemonSet,
+                    VELERO_NODE_AGENT_NAME,
+                    new_node_agent_spec,
+                    namespace=self._namespace,
+                )
+        except ApiError as ae:
+            if ae.status.code != 404:
+                logger.error("Failed to update Velero image: %s", ae)
+                raise VeleroError(f"Failed to update Velero image to '{new_image}'") from ae
+
+    def update_plugin_image(self, kube_client: Client, new_image: str):
+        """Update the Velero plugin image.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            new_image (str): The new Velero plugin image to use.
+
+        Raises:
+            VeleroError: If the update fails.
+        """
+        try:
+            kube_client.patch(
+                Deployment,
+                VELERO_DEPLOYMENT_NAME,
+                [
+                    {
+                        "op": "replace",
+                        "path": "/spec/template/spec/initContainers/0/image",
+                        "value": new_image,
+                    }
+                ],
+                patch_type=PatchType.JSON,
+                namespace=self._namespace,
+            )
+        except ApiError as ae:
+            if ae.status.code != 404:
+                logger.error("Failed to update Velero plugin image: %s", ae)
+                raise VeleroError(f"Failed to update Velero plugin image to '{new_image}'") from ae
+
     def remove(self, kube_client: Client) -> None:
         """Remove Velero resources from the cluster.
 
@@ -447,6 +557,38 @@ class Velero:
     # CHECKERS
 
     @staticmethod
+    def _get_deployment_availability(deployment: Deployment) -> DeploymentCondition:
+        if not deployment.status:
+            raise VeleroError("Deployment has no status")
+
+        if not deployment.status.conditions:
+            raise VeleroError("Deployment has no conditions")
+
+        for condition in deployment.status.conditions:
+            if condition.type == "Available":
+                return condition
+
+        raise VeleroError("Deployment has no Available condition")
+
+    @staticmethod
+    def _get_deployment_pods(
+        kube_client: Client, deployment: Deployment, namespace: str
+    ) -> List[Pod]:
+        if (
+            not deployment.spec
+            or not deployment.spec.selector
+            or not deployment.spec.selector.matchLabels
+        ):
+            return []
+        return list(
+            kube_client.list(Pod, namespace=namespace, labels=deployment.spec.selector.matchLabels)
+        )
+
+    @staticmethod
+    def _get_pod_container_statuses(pod: Pod) -> List[ContainerStatus]:
+        return pod.status.containerStatuses if pod.status and pod.status.containerStatuses else []
+
+    @staticmethod
     def check_velero_deployment(
         kube_client: Client, namespace: str, name: str = VELERO_DEPLOYMENT_NAME
     ) -> None:
@@ -462,24 +604,18 @@ class Velero:
             APIError: If the deployment is not found.
         """
 
-        def get_deployment_availability(deployment: Deployment) -> DeploymentCondition:
-            if not deployment.status:
-                raise VeleroError("Deployment has no status")
-
-            if not deployment.status.conditions:
-                raise VeleroError("Deployment has no conditions")
-
-            for condition in deployment.status.conditions:
-                if condition.type == "Available":
-                    return condition
-
-            raise VeleroError("Deployment has no Available condition")
-
         def check_deployment() -> None:
             deployment = kube_client.get(Deployment, name=name, namespace=namespace)
-            availability = get_deployment_availability(deployment)
+            availability = Velero._get_deployment_availability(deployment)
 
             if availability.status != "True":
+                for pod in Velero._get_deployment_pods(kube_client, deployment, namespace):
+                    for status in Velero._get_pod_container_statuses(pod):
+                        if status.ready is False and status.state:
+                            if status.state.waiting:
+                                raise VeleroError(status.state.waiting.message)
+                            if status.state.terminated:
+                                raise VeleroError(status.state.terminated.message)
                 raise VeleroError(availability.message)
 
         logger.info("Checking the Velero Deployment readiness")
