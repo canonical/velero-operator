@@ -5,8 +5,6 @@
 
 from .core import Velero, VeleroError
 from .providers import (
-    AzureStorageConfig,
-    AzureStorageProvider,
     S3StorageConfig,
     S3StorageProvider,
     StorageProviderError,
@@ -16,8 +14,6 @@ __all__ = [
     "Velero",
     "VeleroError",
     "S3StorageProvider",
-    "AzureStorageProvider",
     "StorageProviderError",
-    "AzureStorageConfig",
     "S3StorageConfig",
 ]

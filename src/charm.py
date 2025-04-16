@@ -8,7 +8,6 @@ import logging
 from typing import Optional, Union
 
 import ops
-from charms.data_platform_libs.v0.azure_storage import AzureStorageRequires
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from lightkube import ApiError, Client
@@ -18,7 +17,6 @@ from pydantic import ValidationError
 from config import CharmConfig
 from constants import VELERO_BINARY_PATH, StorageRelation
 from velero import (
-    AzureStorageProvider,
     S3StorageProvider,
     StorageProviderError,
     Velero,
@@ -68,7 +66,6 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             return
 
         self.s3_integrator = S3Requirer(self, StorageRelation.S3.value)
-        self.azure_integrator = AzureStorageRequires(self, StorageRelation.AZURE.value)
 
         self.framework.observe(self.on.install, self._reconcile)
         self.framework.observe(self.on.update_status, self._reconcile)
@@ -106,22 +103,15 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         self._velero = value
 
     @property
-    def has_many_storage_relations(self) -> bool:
-        """Check if there are multiple storage provider relations."""
-        relations = [r.value for r in StorageRelation]
-        return sum(bool(self.model.get_relation(relation)) for relation in relations) > 1
-
-    @property
     def storage_relation(self) -> Optional[StorageRelation]:
         """Return an active related storage provided.
 
         If there are more than one storage provider related, return None
         """
         relations = [r.value for r in StorageRelation]
-        if not self.has_many_storage_relations:
-            for relation in relations:
-                if bool(self.model.get_relation(relation)):
-                    return StorageRelation(relation)
+        for relation in relations:
+            if bool(self.model.get_relation(relation)):
+                return StorageRelation(relation)
         return None
 
     # EVENT HANDLERS
@@ -202,11 +192,6 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             provider = S3StorageProvider(
                 self.config.velero_aws_plugin_image, self.s3_integrator.get_s3_connection_info()
             )
-        elif self.storage_relation == StorageRelation.AZURE:
-            provider = AzureStorageProvider(
-                self.config.velero_azure_plugin_image,
-                self.azure_integrator.get_azure_connection_info(),
-            )
         else:  # pragma: no cover
             raise ValueError("Unsupported storage provider or no provider configured.")
 
@@ -228,14 +213,6 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 return
 
         relations = "|".join([r.value for r in StorageRelation])
-        if self.has_many_storage_relations:
-            self._log_and_set_status(
-                ops.BlockedStatus(
-                    f"Only one Storage Provider should be related at the time: [{relations}]"
-                )
-            )
-            return
-
         if not self.storage_relation:
             self._log_and_set_status(ops.BlockedStatus(f"Missing relation: [{relations}]"))
             return

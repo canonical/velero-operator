@@ -4,7 +4,6 @@
 
 import asyncio
 import logging
-import time
 from pathlib import Path
 
 import pytest
@@ -27,18 +26,12 @@ APP_NAME = METADATA["name"]
 
 S3_INTEGRATOR = "s3-integrator"
 S3_INTEGRATOR_CHANNEL = "latest/stable"
-AZURE_INTEGRATOR = "azure-storage-integrator"
-AZURE_INTEGRATOR_CHANNEL = "latest/edge"
-AZURE_SECRET_NAME = f"azure-secret-{time.time()}"
 
 UNTRUST_ERROR_MESSAGE = (
     "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
 )
 READY_MESSAGE = "Unit is Ready"
-MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials|azure-credentials]"
-MULTIPLE_RELATIONS_MESSAGE = (
-    "Only one Storage Provider should be related at the time: [s3-credentials|azure-credentials]"
-)
+MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials]"
 
 
 @pytest.fixture(scope="session")
@@ -69,11 +62,9 @@ def get_model(ops_test: OpsTest) -> Model:
 
 
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info, azure_connection_info):
+async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info):
     """Build the velero-operator and deploy it with the integrator charms."""
-    logger.info(
-        "Building and deploying velero-operator charm with s3-integrator, azure-storage-integrator"
-    )
+    logger.info("Building and deploying velero-operator charm with s3-integrator")
 
     charm = await ops_test.build_charm(".")
     model = get_model(ops_test)
@@ -83,10 +74,7 @@ async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info, azure_con
             charm, application_name=APP_NAME, trust=False, config={"use-node-agent": True}
         ),
         model.deploy(S3_INTEGRATOR, channel=S3_INTEGRATOR_CHANNEL),
-        model.deploy(AZURE_INTEGRATOR, channel=AZURE_INTEGRATOR_CHANNEL),
-        model.wait_for_idle(
-            apps=[APP_NAME, S3_INTEGRATOR, AZURE_INTEGRATOR], status="blocked", timeout=TIMEOUT
-        ),
+        model.wait_for_idle(apps=[APP_NAME, S3_INTEGRATOR], status="blocked", timeout=TIMEOUT),
     )
 
     for unit in model.applications[APP_NAME].units:
@@ -122,34 +110,6 @@ async def test_configure_s3_integrator(
 
 
 @pytest.mark.abort_on_fail
-async def test_configure_azure_integrator(
-    ops_test: OpsTest,
-    azure_cloud_credentials,
-    azure_cloud_configs,
-):
-    """Configure the integrator charm with the credentials and configs."""
-    if azure_cloud_credentials is None or azure_cloud_configs is None:
-        pytest.skip("Azure connection info is not available")
-
-    model = get_model(ops_test)
-
-    logger.info("Setting credentials for %s", AZURE_INTEGRATOR)
-    await model.applications[AZURE_INTEGRATOR].set_config(azure_cloud_configs)
-    _, stdout, _ = await ops_test.juju(
-        *["add-secret", AZURE_SECRET_NAME, f"secret-key={azure_cloud_credentials['secret-key']}"]
-    )
-    await model.grant_secret(AZURE_SECRET_NAME, AZURE_INTEGRATOR)
-    await model.applications[AZURE_INTEGRATOR].set_config({"credentials": stdout.strip()})
-
-    logger.info("Waiting for %s to be active", AZURE_INTEGRATOR)
-    await model.wait_for_idle(
-        apps=[AZURE_INTEGRATOR],
-        status="active",
-        timeout=TIMEOUT,
-    )
-
-
-@pytest.mark.abort_on_fail
 async def test_trust(ops_test: OpsTest):
     """Trust the velero-operator charm."""
     logger.info("Trusting velero-operator charm")
@@ -171,55 +131,18 @@ async def test_trust(ops_test: OpsTest):
 
 
 @pytest.mark.abort_on_fail
-async def test_multiple_integrator_relations(ops_test: OpsTest):
-    """Relate the S3 and Azure integrator charms to the velero-operator charm.
-
-    The velero-operator charm should be in a blocked state after the relation is created,
-    since both storage providers are related.
-    """
-    model = get_model(ops_test)
-
-    logger.info("Relating velero-operator to s3-integrator and azure-storage-integrator")
-    await model.integrate(APP_NAME, S3_INTEGRATOR)
-    await model.integrate(APP_NAME, AZURE_INTEGRATOR)
-    await model.wait_for_idle(
-        apps=[APP_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MULTIPLE_RELATIONS_MESSAGE
-
-    logger.info("Unrelating velero-operator from s3-integrator and azure-storage-integrator")
-    await ops_test.juju(*["remove-relation", APP_NAME, AZURE_INTEGRATOR])
-    await ops_test.juju(*["remove-relation", APP_NAME, S3_INTEGRATOR])
-    await model.wait_for_idle(
-        apps=[APP_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
-
-
-@pytest.mark.abort_on_fail
 @pytest.mark.parametrize(
     "integrator",
     [
         S3_INTEGRATOR,
-        AZURE_INTEGRATOR,
     ],
 )
 async def test_integrator_relation(
-    ops_test: OpsTest, integrator: str, azure_connection_info, s3_connection_info
+    ops_test: OpsTest, integrator: str, s3_connection_info
 ):
     """Test the relation between the velero-operator charm and the integrator charm."""
     if integrator == S3_INTEGRATOR and s3_connection_info is None:
         pytest.skip("S3 connection info is not available")
-    if integrator == AZURE_INTEGRATOR and azure_connection_info is None:
-        pytest.skip("Azure connection info is not available")
 
     model = get_model(ops_test)
 
@@ -253,9 +176,7 @@ async def test_remove(ops_test: OpsTest, lightkube_client):
     velero = get_velero(model.name)
 
     await asyncio.gather(
-        model.remove_application(AZURE_INTEGRATOR),
         model.remove_application(S3_INTEGRATOR),
-        model.remove_secret(AZURE_SECRET_NAME),
         model.remove_application(APP_NAME),
         model.block_until(
             lambda: model.applications[APP_NAME].status == "unknown",

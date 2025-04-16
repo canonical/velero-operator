@@ -34,4 +34,3 @@ class StorageRelation(str, Enum):
     """Storage provider enum."""
 
     S3 = "s3-credentials"
-    AZURE = "azure-credentials"
