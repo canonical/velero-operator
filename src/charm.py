@@ -129,7 +129,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 )
                 return
 
-        # TODO: Avoid running on duplicate events
+        # FIXME: Avoid running on duplicate events
         # When the relation is created/joined, where will be two RelationChangedEvents
         # triggered, so the remove/configure logic is called twice.
         if isinstance(event, (ops.RelationBrokenEvent, ops.RelationChangedEvent)):

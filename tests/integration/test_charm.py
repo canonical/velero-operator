@@ -19,7 +19,7 @@ from velero import Velero
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT = 60 * 5
+TIMEOUT = 60 * 10
 USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
@@ -88,9 +88,6 @@ async def test_configure_s3_integrator(
     s3_cloud_configs,
 ):
     """Configure the integrator charm with the credentials and configs."""
-    if s3_cloud_credentials is None or s3_cloud_configs is None:
-        pytest.skip("S3 connection info is not available")
-
     model = get_model(ops_test)
 
     logger.info("Setting credentials for %s", S3_INTEGRATOR)
@@ -137,13 +134,8 @@ async def test_trust(ops_test: OpsTest):
         S3_INTEGRATOR,
     ],
 )
-async def test_integrator_relation(
-    ops_test: OpsTest, integrator: str, s3_connection_info
-):
+async def test_integrator_relation(ops_test: OpsTest, integrator: str):
     """Test the relation between the velero-operator charm and the integrator charm."""
-    if integrator == S3_INTEGRATOR and s3_connection_info is None:
-        pytest.skip("S3 connection info is not available")
-
     model = get_model(ops_test)
 
     logger.info("Relating velero-operator to %s", integrator)

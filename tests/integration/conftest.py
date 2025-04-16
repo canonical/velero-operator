@@ -8,7 +8,6 @@ import os
 import socket
 import subprocess
 import uuid
-from typing import Optional
 
 import boto3
 import botocore.exceptions
@@ -103,19 +102,16 @@ def setup_microceph() -> S3ConnectionInfo:
 
 
 @pytest.fixture(scope="session")
-def s3_connection_info() -> Optional[S3ConnectionInfo]:
+def s3_connection_info() -> S3ConnectionInfo:
     """Return S3 connection info based on environment."""
-    global _microceph_cache
-
     if is_ci():
         return setup_microceph()
 
     required_env_vars = ["AWS_ACCESS_KEY", "AWS_SECRET_KEY", "AWS_BUCKET"]
     missing_or_empty = [var for var in required_env_vars if not os.environ.get(var)]
     if missing_or_empty:
-        logger.warning(
-            "Missing or empty required AWS environment variables: %s - skipping AWS tests",
-            {", ".join(missing_or_empty)},
+        raise RuntimeError(
+            f"Missing or empty required AWS environment variables: {", ".join(missing_or_empty)}",
         )
 
     return S3ConnectionInfo(
@@ -127,11 +123,9 @@ def s3_connection_info() -> Optional[S3ConnectionInfo]:
 
 @pytest.fixture(scope="session")
 def s3_cloud_credentials(
-    s3_connection_info: Optional[S3ConnectionInfo],
-) -> Optional[dict[str, str]]:
+    s3_connection_info: S3ConnectionInfo,
+) -> dict[str, str]:
     """Return cloud credentials for S3."""
-    if s3_connection_info is None:
-        return None
     return {
         "access-key": s3_connection_info.access_key_id,
         "secret-key": s3_connection_info.secret_access_key,
@@ -139,10 +133,8 @@ def s3_cloud_credentials(
 
 
 @pytest.fixture(scope="session")
-def s3_cloud_configs(s3_connection_info: Optional[S3ConnectionInfo]) -> Optional[dict[str, str]]:
+def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
     """Return cloud configs for S3."""
-    if s3_connection_info is None:
-        return None
     config = {
         "bucket": s3_connection_info.bucket,
         "path": f"velero/{uuid.uuid4()}",
@@ -152,7 +144,8 @@ def s3_cloud_configs(s3_connection_info: Optional[S3ConnectionInfo]) -> Optional
         config["endpoint"] = f"http://{get_host_ip()}:{MICROCEPH_RGW_PORT}"
         config["s3-uri-style"] = "path"
     else:
-        config["endpoint"] = "https://s3.amazonaws.com"
+        config["endpoint"] = os.environ.get("AWS_ENDPOINT", "https://s3.amazonaws.com")
+        config["s3-uri-style"] = os.environ.get("AWS_S3_URI_STYLE", "path")
         config["region"] = os.environ.get("AWS_REGION", "us-east-2")
 
     return config
