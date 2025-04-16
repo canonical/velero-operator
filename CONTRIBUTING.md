@@ -61,3 +61,47 @@ Before you can begin, you will need to:
 ## Code of Conduct
 
 This project follows the Ubuntu Code of Conduct. You can read it in full [here](https://ubuntu.com/community/code-of-conduct).
+
+
+### Testing
+
+- **Unit Tests**: Ensure that all unit tests pass before submitting your pull request. You can run the tests using the following command:
+    
+    ```bash
+    tox -e unit
+    ```
+
+- **Integration Tests**: If your changes affect the integration tests, make sure to run them as well. You can run the integration tests using the following:
+    The integration tests can be run locally, if you have the Juju K8s Conrtoller set up:
+
+    ``` bash
+    sudo snap install microk8s --classic --channel=1.31/stable
+    sudo microk8s enable dns
+    sudo microk8s enable hostpath-storage
+    sudo microk8s enable ingress
+    sudo microk8s enable rbac
+    sudo microk8s enable metallb:10.64.140.43-10.64.140.49
+
+    sudo microk8s kubectl config view --raw >> $HOME/.kube/config
+
+    sudo snap install juju --classic --channel=3.6/stable
+    sudo microk8s config | juju add-k8s sibyl-k8s --client
+    juju bootstrap sibyl-k8s sibyl
+    ```
+
+    Create environment variables for S3 access:
+
+    ```bash
+    export AWS_ACCESS_KEY=your_access_key_id
+    export AWS_SECRET_KEY=your_secret_access_key
+    export AWS_BUCKET=your_s3_bucket_name
+    export AWS_REGION=your_aws_region
+    export AWS_ENDPOINT=your_aws_endpoint # Optional, only if using a local S3 endpoint
+    export AWS_S3_URI_STYLE=path # Optional, only if using a local S3 endpoint
+    ```
+
+    Then run the integration tests:
+
+    ```bash
+    tox -vve integration -- --model testing
+    ```
