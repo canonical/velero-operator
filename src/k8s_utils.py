@@ -46,6 +46,7 @@ def k8s_resource_exists(kube_client: Client, resource: K8sResource, namespace: s
 
     Raises:
         ValueError: If the resource type is neither a NamespacedResource nor a GlobalResource.
+        APiError: If the resource cannot be retrieved.
     """
     try:
         if issubclass(resource.type, NamespacedResource):
@@ -54,9 +55,11 @@ def k8s_resource_exists(kube_client: Client, resource: K8sResource, namespace: s
             kube_client.get(resource.type, name=resource.name)
         else:  # pragma: no cover
             raise ValueError(f"Unknown resource type: {resource.type}")
-    except ApiError:
-        logger.warning("Resource %s '%s' not found", resource.type.__name__, resource.name)
-        return False
+    except ApiError as ae:
+        if ae.status.code == 404:
+            logger.warning("Resource %s '%s' not found", resource.type.__name__, resource.name)
+            return False
+        raise ae
     return True
 
 

@@ -268,6 +268,17 @@ def test_is_installed_success(mock_lightkube_client, velero):
     assert velero.is_installed(mock_lightkube_client, use_node_agent=True) is True
 
 
+def test_is_installed_api_error(mock_lightkube_client, velero):
+    """Check is_installed raises a ApiError when the API call fails."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 500, "message": "not found"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.get.side_effect = api_error
+
+    with pytest.raises(ApiError):
+        velero.is_installed(mock_lightkube_client, use_node_agent=True)
+
+
 def test_is_installed_missing_daemonset(mock_lightkube_client, velero):
     """Check is_installed returns False when the DaemonSet is missing."""
 
