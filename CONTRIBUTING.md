@@ -62,46 +62,57 @@ Before you can begin, you will need to:
 
 This project follows the Ubuntu Code of Conduct. You can read it in full [here](https://ubuntu.com/community/code-of-conduct).
 
+## Testing
 
-### Testing
+We support both **unit tests** and **integration tests**. Here's how to run them locally.
 
-- **Unit Tests**: Ensure that all unit tests pass before submitting your pull request. You can run the tests using the following command:
-    
-    ```bash
-    tox -e unit
-    ```
+### Unit Tests
 
-- **Integration Tests**: If your changes affect the integration tests, make sure to run them as well. You can run the integration tests using the following:
-    The integration tests can be run locally, if you have the Juju K8s Conrtoller set up:
+Ensure all unit tests pass before submitting your pull request:
 
-    ``` bash
-    sudo snap install microk8s --classic --channel=1.31/stable
-    sudo microk8s enable dns
-    sudo microk8s enable hostpath-storage
-    sudo microk8s enable ingress
-    sudo microk8s enable rbac
-    sudo microk8s enable metallb:10.64.140.43-10.64.140.49
+```bash
+tox -e unit
+```
 
-    sudo microk8s kubectl config view --raw >> $HOME/.kube/config
+### Integration Tests
 
-    sudo snap install juju --classic --channel=3.6/stable
-    sudo microk8s config | juju add-k8s sibyl-k8s --client
-    juju bootstrap sibyl-k8s sibyl
-    ```
+Integration tests require a working Kubernetes cluster (via `microk8s`) and a Juju controller. We **assume** you already have these set up. If not, refer to the official [microk8s](https://microk8s.io/) and [juju](https://juju.is/) documentation.
 
-    Create environment variables for S3 access:
+**Important things to know before running the integration tests:**
 
-    ```bash
-    export AWS_ACCESS_KEY=your_access_key_id
-    export AWS_SECRET_KEY=your_secret_access_key
-    export AWS_BUCKET=your_s3_bucket_name
-    export AWS_REGION=your_aws_region
-    export AWS_ENDPOINT=your_aws_endpoint # Optional, only if using a local S3 endpoint
-    export AWS_S3_URI_STYLE=path # Optional, only if using a local S3 endpoint
-    ```
+* These tests require AWS-style S3 credentials.
+* If you're running in a CI environment (`CI=true`), a local RadosGW (via `microceph`) is set up automatically.
+* When testing locally, you **must** provide your own credentials or reuse those from `microceph`.
 
-    Then run the integration tests:
+#### 1. Required Environment Variables
 
-    ```bash
-    tox -vve integration -- --model testing
-    ```
+Set the following env vars **before** running the integration tests:
+
+```bash
+export AWS_ACCESS_KEY=your_access_key_id
+export AWS_SECRET_KEY=your_secret_access_key
+export AWS_BUCKET=your_s3_bucket_name
+export AWS_REGION=your_aws_region  # Optional unless using AWS
+export AWS_ENDPOINT=http://localhost:7480  # Optional, required for local S3 (e.g. microceph)
+export AWS_S3_URI_STYLE=path  # Optional, required for local S3
+```
+
+#### 2. CI Behavior
+
+When the `CI=true` environment variable is set:
+
+* MicroCeph is installed and bootstrapped automatically
+* A local RadosGW instance is created
+* S3 credentials are generated
+* A test bucket is created
+* The integration tests use this local setup
+
+> **Note**: You can create your own S3 bucket and credentials if you prefer. Just ensure the `AWS_*` environment variables are set correctly.
+
+#### 4. Run Integration Tests
+
+Once your environment is ready:
+
+```bash
+tox -vve integration -- --model testing
+```
