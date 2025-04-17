@@ -17,7 +17,7 @@ class StorageProviderError(Exception):
 class StorageConfig(BaseModel):
     """Base Pydantic model for storage config."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
     @classmethod
     def verror_to_str(cls, ve: ValidationError) -> str:
