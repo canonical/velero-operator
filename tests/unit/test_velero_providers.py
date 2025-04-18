@@ -6,6 +6,8 @@ import base64
 import pytest
 
 from velero import (
+    AzureStorageConfig,
+    AzureStorageProvider,
     S3StorageConfig,
     S3StorageProvider,
     StorageProviderError,
@@ -25,6 +27,13 @@ s3_data_2 = {
     "secret-key": "test-secret-key",
     "path": "test/path",
     "endpoint": "https://s3.amazonaws.com",
+}
+
+# Valid Azure input data
+azure_data = {
+    "container": "test-container",
+    "storage-account": "testaccount",
+    "secret-key": "azure-secret-key",
 }
 
 
@@ -72,3 +81,32 @@ def test_s3_storage_provider_invalid_data():
             },
         )
     assert f"{S3StorageConfig.__name__} errors: 's3-uri-style'" in str(exc_info.value)
+
+
+def test_azure_storage_provider_success():
+    """Test Azure storage provider initialization with valid data."""
+    provider = AzureStorageProvider("azure-plugin-image", azure_data)
+
+    assert provider.plugin == "azure"
+    assert provider.bucket == "test-container"
+    assert provider.plugin_image == "azure-plugin-image"
+    assert provider.path is None
+
+    expected_secret = (
+        f"AZURE_STORAGE_ACCOUNT_ACCESS_KEY={azure_data['secret-key']}\n"
+        "AZURE_CLOUD_NAME=AzurePublicCloud\n"
+    )
+    encoded_secret = base64.b64encode(expected_secret.encode()).decode()
+    assert provider.secret_data == encoded_secret
+
+    assert provider.config_flags == {
+        "storageAccount": "testaccount",
+        "storageAccountKeyEnvVar": "AZURE_STORAGE_ACCOUNT_ACCESS_KEY",
+    }
+
+
+def test_azure_storage_provider_invalid_data():
+    """Test Azure storage provider initialization with missing required fields."""
+    with pytest.raises(StorageProviderError) as exc_info:
+        AzureStorageProvider("azure-plugin-image", {"storage-account": "missing-container"})
+    assert f"{AzureStorageConfig.__name__} errors:" in str(exc_info.value)
