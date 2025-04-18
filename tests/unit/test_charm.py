@@ -1,20 +1,44 @@
 # Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, PropertyMock, patch
 
 import httpx
 import pytest
 from lightkube.core.exceptions import ApiError
 from ops import testing
+from scenario import Relation
 
 from charm import VeleroOperatorCharm
-from velero import VeleroError
+from constants import StorageRelation
+from velero import S3StorageProvider, VeleroError
 
 VELERO_IMAGE_CONFIG_KEY = "velero-image"
-VELERO_AZURE_PLUGIN_CONFIG_KEY = "velero-azure-plugin-image"
 USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
 VELERO_AWS_PLUGIN_CONFIG_KEY = "velero-aws-plugin-image"
+RELATIONS = "|".join([r.value for r in StorageRelation])
+
+READY_MESSAGE = "Unit is Ready"
+REMOVE_MESSAGE = "Removing Velero from the cluster"
+UNTRUST_ERROR_MESSAGE = (
+    "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
+)
+MISSING_RELATION_MESSAGE = f"Missing relation: [{RELATIONS}]"
+INSTALL_ERROR_MESSAGE = "Failed to install Velero on the cluster. See juju debug-log for details."
+CONFIGURE_PROVIDER_ERROR_MESSAGE = (
+    "Failed to configure Velero Storage Provider. See juju debug-log for details."
+)
+REMOVE_PROVIDER_ERROR_MESSAGE = (
+    "Failed to delete Velero Storage Provider. See juju debug-log for details."
+)
+DEPLOYMENT_NOT_READY_MESSAGE = "Velero Deployment is not ready: "
+NODE_AGENT_NOT_READY_MESSAGE = "Velero NodeAgent is not ready: "
+STORAGE_PROVIDER_NOT_READY_MESSAGE = "Velero Storage Provider is not ready: "
+MANY_RELATIONS_ERROR_MESSAGE = (
+    f"Only one Storage Provider should be related at the time: [{RELATIONS}]"
+)
+K8S_API_ERROR_MESSAGE = "Failed to check if charm can access K8s API, check logs for details"
+INVALID_CONFIG_MESSAGE = "Invalid configuration: "
 
 
 @pytest.fixture()
@@ -38,7 +62,6 @@ def mock_velero():
     [
         VELERO_IMAGE_CONFIG_KEY,
         VELERO_AWS_PLUGIN_CONFIG_KEY,
-        VELERO_AZURE_PLUGIN_CONFIG_KEY,
     ],
 )
 def test_invalid_image_config(image_key):
@@ -50,7 +73,7 @@ def test_invalid_image_config(image_key):
     state_out = ctx.run(ctx.on.install(), testing.State(config={image_key: ""}))
 
     # Assert
-    assert state_out.unit_status == testing.BlockedStatus(f"Invalid configuration: {image_key}")
+    assert state_out.unit_status == testing.BlockedStatus(f"{INVALID_CONFIG_MESSAGE}{image_key}")
 
 
 @pytest.mark.parametrize(
@@ -58,15 +81,11 @@ def test_invalid_image_config(image_key):
     [
         (
             403,
-            testing.BlockedStatus(
-                "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
-            ),
+            testing.BlockedStatus(UNTRUST_ERROR_MESSAGE),
         ),
         (
             404,
-            testing.BlockedStatus(
-                "Failed to check if charm can access K8s API, check logs for details"
-            ),
+            testing.BlockedStatus(K8S_API_ERROR_MESSAGE),
         ),
     ],
 )
@@ -89,28 +108,63 @@ def test_charm_k8s_access_failed(mock_lightkube_client, code, expected_status):
 
 @patch("velero.Velero.check_velero_node_agent")
 @patch("velero.Velero.check_velero_deployment")
+@patch("velero.Velero.check_velero_storage_locations")
 @pytest.mark.parametrize(
-    "deployment_ok, nodeagent_ok, storage_attached, expected_status, use_node_agent_config",
+    "deployment_ok, nodeagent_ok, has_rel, provider_ok, status, use_node_agent",
     [
         # Deployment not ready
-        (False, True, True, testing.BlockedStatus("Velero Deployment is not ready: reason"), True),
+        (
+            False,
+            True,
+            True,
+            True,
+            testing.BlockedStatus(f"{DEPLOYMENT_NOT_READY_MESSAGE}reason"),
+            True,
+        ),
         # NodeAgent not ready
-        (True, False, True, testing.BlockedStatus("Velero NodeAgent is not ready: reason"), True),
+        (
+            True,
+            False,
+            True,
+            True,
+            testing.BlockedStatus(f"{NODE_AGENT_NOT_READY_MESSAGE}reason"),
+            True,
+        ),
+        # No relations
+        (
+            True,
+            True,
+            False,
+            True,
+            testing.BlockedStatus(MISSING_RELATION_MESSAGE),
+            True,
+        ),
+        # Provider not ready
+        (
+            True,
+            True,
+            True,
+            False,
+            testing.BlockedStatus(f"{STORAGE_PROVIDER_NOT_READY_MESSAGE}reason"),
+            True,
+        ),
         # All good
-        (True, True, True, testing.ActiveStatus("Unit is Ready"), True),
+        (True, True, True, True, testing.ActiveStatus(READY_MESSAGE), True),
         # All good
-        (True, False, True, testing.ActiveStatus("Unit is Ready"), False),
+        (True, False, True, True, testing.ActiveStatus(READY_MESSAGE), False),
     ],
 )
 def test_on_update_status(
+    check_velero_storage_locations,
     check_velero_deployment,
     check_velero_node_agent,
     mock_lightkube_client,
     deployment_ok,
     nodeagent_ok,
-    storage_attached,
-    expected_status,
-    use_node_agent_config,
+    has_rel,
+    provider_ok,
+    status,
+    use_node_agent,
 ):
     """Check the charm status is set correctly based on the deployment and nodeagent status."""
     # Arrange
@@ -118,20 +172,26 @@ def test_on_update_status(
         check_velero_deployment.side_effect = VeleroError("reason")
     if not nodeagent_ok:
         check_velero_node_agent.side_effect = VeleroError("reason")
+    if not provider_ok:
+        check_velero_storage_locations.side_effect = VeleroError("reason")
 
-    ctx = testing.Context(VeleroOperatorCharm)
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3 if has_rel else None
+        ctx = testing.Context(VeleroOperatorCharm)
 
-    with ctx(
-        ctx.on.update_status(),
-        testing.State(config={USE_NODE_AGENT_CONFIG_KEY: use_node_agent_config}),
-    ) as manager:
-        manager.charm._stored.storage_provider_attached = storage_attached
+        with ctx(
+            ctx.on.update_status(),
+            testing.State(config={USE_NODE_AGENT_CONFIG_KEY: use_node_agent}),
+        ) as manager:
+            # Act
+            state_out = manager.run()
 
-        # Act
-        state_out = manager.run()
-
-        # Assert
-        assert state_out.unit_status == expected_status
+            # Assert
+            assert state_out.unit_status == status
 
 
 @pytest.mark.parametrize(
@@ -155,7 +215,7 @@ def test_on_install(velero_installed, mock_velero, mock_lightkube_client):
         mock_velero.install.assert_not_called()
     else:
         mock_velero.install.assert_called_once_with("image", False)
-    assert state_out.unit_status == testing.ActiveStatus("Unit is Ready")
+    assert state_out.unit_status == testing.BlockedStatus(MISSING_RELATION_MESSAGE)
 
 
 def test_on_install_error(mock_velero, mock_lightkube_client):
@@ -169,9 +229,7 @@ def test_on_install_error(mock_velero, mock_lightkube_client):
     state_out = ctx.run(ctx.on.install(), testing.State())
 
     # Assert
-    assert state_out.unit_status == testing.BlockedStatus(
-        "Failed to install Velero on the cluster. See juju debug-log for details."
-    )
+    assert state_out.unit_status == testing.BlockedStatus(INSTALL_ERROR_MESSAGE)
 
 
 @patch("charm.logger")
@@ -206,4 +264,190 @@ def test_on_remove(mock_velero, mock_lightkube_client):
 
     # Assert
     mock_velero.remove.assert_called_once()
-    assert state_out.unit_status == testing.MaintenanceStatus("Removing Velero from the cluster")
+    assert state_out.unit_status == testing.MaintenanceStatus(REMOVE_MESSAGE)
+
+
+@pytest.mark.parametrize(
+    "relations",
+    [
+        [Relation(endpoint=StorageRelation.S3.value)],
+    ],
+)
+def test_storage_relation_properties(relations, mock_lightkube_client, mock_velero):
+    """Test that the storage_relation properties return the correct value."""
+    # Arrange
+    ctx = testing.Context(VeleroOperatorCharm)
+
+    # Act and Assert
+    with ctx(ctx.on.start(), testing.State(relations=relations)) as manager:
+        assert manager.charm.storage_relation == StorageRelation(relations[0].endpoint)
+
+
+@pytest.mark.parametrize(
+    "storage_relation,provider_class,relation_data",
+    [
+        (
+            StorageRelation.S3,
+            S3StorageProvider,
+            {
+                "region": "us-east-1",
+                "bucket": "test-bucket",
+                "access-key": "test-key",
+                "secret-key": "test=key",
+            },
+        ),
+    ],
+)
+def test_storage_relation_changed_success(
+    storage_relation, provider_class, relation_data, mock_velero, mock_lightkube_client
+):
+    """Test that the relation_changed configures the storage provider."""
+    # Arrange
+    mock_velero.is_storage_configured.return_value = False
+    ctx = testing.Context(VeleroOperatorCharm)
+    relation = Relation(endpoint=storage_relation.value, remote_app_data=relation_data)
+
+    # Act
+    state_out = ctx.run(
+        ctx.on.relation_changed(relation),
+        testing.State(relations=[relation]),
+    )
+
+    # Assert
+    mock_velero.remove_storage_locations.assert_called_once()
+    mock_velero.is_storage_configured.assert_called_once()
+    mock_velero.configure_storage_locations.calls()
+    mock_velero.configure_storage_locations.assert_called_once_with(mock_lightkube_client, ANY)
+    _, provider = mock_velero.configure_storage_locations.call_args[0]
+    assert isinstance(provider, provider_class)
+    assert state_out.unit_status == testing.ActiveStatus(READY_MESSAGE)
+
+
+@pytest.mark.parametrize(
+    "storage_relation,relation_data",
+    [
+        (
+            StorageRelation.S3,
+            {"test": "test"},
+        ),
+    ],
+)
+def test_storage_relation_changed_invalid_config(
+    storage_relation, relation_data, mock_velero, mock_lightkube_client
+):
+    """Test that the relation_changed event sets the status to Blocked."""
+    # Arrange
+    mock_velero.is_storage_configured.return_value = False
+    ctx = testing.Context(VeleroOperatorCharm)
+    relation = Relation(endpoint=storage_relation.value, remote_app_data=relation_data)
+
+    # Act
+    state_out = ctx.run(
+        ctx.on.relation_changed(relation),
+        testing.State(relations=[relation]),
+    )
+
+    # Assert
+    assert state_out.unit_status.name == testing.BlockedStatus.name
+    assert INVALID_CONFIG_MESSAGE in state_out.unit_status.message
+
+
+@pytest.mark.parametrize(
+    "provider_configured",
+    [True, False],
+)
+def test_storage_relation_changed_configure(
+    provider_configured, mock_velero, mock_lightkube_client
+):
+    """Test that the relation_changed event calls Velero.configure_storage_locations."""
+    # Arrange
+    mock_velero.is_storage_configured.return_value = provider_configured
+    ctx = testing.Context(VeleroOperatorCharm)
+    relation = Relation(
+        endpoint=StorageRelation.S3.value,
+        remote_app_data={
+            "region": "us-east-1",
+            "bucket": "test-bucket",
+            "access-key": "test-key",
+            "secret-key": "test=key",
+        },
+    )
+
+    # Act
+    state_out = ctx.run(
+        ctx.on.update_status(),
+        testing.State(relations=[relation]),
+    )
+
+    # Assert
+    if provider_configured:
+        mock_velero.remove_storage_locations.assert_not_called()
+        mock_velero.configure_storage_locations.assert_not_called()
+    else:
+        mock_velero.remove_storage_locations.assert_not_called()
+        mock_velero.configure_storage_locations.assert_called_once()
+    assert state_out.unit_status == testing.ActiveStatus(READY_MESSAGE)
+
+
+def test_storage_relation_changed_install_error(mock_velero, mock_lightkube_client):
+    """Test that the relation_changed event raises an error if configure fails."""
+    # Arrange
+    mock_velero.is_storage_configured.return_value = False
+    mock_velero.configure_storage_locations.side_effect = VeleroError(
+        "Failed to configure storage locations"
+    )
+    ctx = testing.Context(VeleroOperatorCharm)
+    relation = Relation(
+        endpoint=StorageRelation.S3.value,
+        remote_app_data={
+            "bucket": "test-bucket",
+            "region": "us-east-1",
+            "secret-key": "test-key",
+            "access-key": "test-key",
+        },
+    )
+
+    # Act
+    state_out = ctx.run(
+        ctx.on.relation_changed(relation),
+        testing.State(relations=[relation]),
+    )
+
+    # Assert
+    assert state_out.unit_status == testing.BlockedStatus(CONFIGURE_PROVIDER_ERROR_MESSAGE)
+
+
+def test_storage_relation_broken_success(mock_velero, mock_lightkube_client):
+    """Test that the relation_broken event removes the storage provider."""
+    # Arrange
+    ctx = testing.Context(VeleroOperatorCharm)
+    relation = Relation(endpoint=StorageRelation.S3.value)
+
+    # Act
+    state_out = ctx.run(
+        ctx.on.relation_broken(relation),
+        testing.State(relations=[relation]),
+    )
+
+    # Assert
+    mock_velero.remove_storage_locations.assert_called_once()
+    assert state_out.unit_status == testing.BlockedStatus(MISSING_RELATION_MESSAGE)
+
+
+def test_storage_relation_broken_error(mock_velero, mock_lightkube_client):
+    """Test that the relation_departed event raises an error if remove fails."""
+    # Arrange
+    ctx = testing.Context(VeleroOperatorCharm)
+    relation = Relation(endpoint=StorageRelation.S3.value)
+    mock_velero.remove_storage_locations.side_effect = VeleroError(
+        "Failed to remove storage locations"
+    )
+
+    # Act
+    state_out = ctx.run(
+        ctx.on.relation_broken(relation),
+        testing.State(relations=[relation]),
+    )
+
+    # Assert
+    assert state_out.unit_status == testing.BlockedStatus(REMOVE_PROVIDER_ERROR_MESSAGE)

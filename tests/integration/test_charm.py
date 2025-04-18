@@ -19,14 +19,19 @@ from velero import Velero
 
 logger = logging.getLogger(__name__)
 
+TIMEOUT = 60 * 10
 USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
+
+S3_INTEGRATOR = "s3-integrator"
+S3_INTEGRATOR_CHANNEL = "latest/stable"
 
 UNTRUST_ERROR_MESSAGE = (
     "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
 )
 READY_MESSAGE = "Unit is Ready"
+MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials]"
 
 
 @pytest.fixture(scope="session")
@@ -57,19 +62,19 @@ def get_model(ops_test: OpsTest) -> Model:
 
 
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy_without_trust(ops_test: OpsTest):
-    """Build the charm-under-test and deploy it together with related charms.
+async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info):
+    """Build the velero-operator and deploy it with the integrator charms."""
+    logger.info("Building and deploying velero-operator charm with s3-integrator")
 
-    Assert on the unit status being blocked due to lack of trust.
-    """
     charm = await ops_test.build_charm(".")
-
     model = get_model(ops_test)
+
     await asyncio.gather(
         model.deploy(
             charm, application_name=APP_NAME, trust=False, config={"use-node-agent": True}
         ),
-        model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=60 * 20),
+        model.deploy(S3_INTEGRATOR, channel=S3_INTEGRATOR_CHANNEL),
+        model.wait_for_idle(apps=[APP_NAME, S3_INTEGRATOR], status="blocked", timeout=TIMEOUT),
     )
 
     for unit in model.applications[APP_NAME].units:
@@ -77,31 +82,97 @@ async def test_build_and_deploy_without_trust(ops_test: OpsTest):
 
 
 @pytest.mark.abort_on_fail
-async def test_trust_blocked_deployment(ops_test: OpsTest):
-    """Trust existing blocked deployment.
-
-    Assert on the application status recovering to active.
-    """
-    await ops_test.juju("trust", APP_NAME, "--scope=cluster")
+async def test_configure_s3_integrator(
+    ops_test: OpsTest,
+    s3_cloud_credentials,
+    s3_cloud_configs,
+):
+    """Configure the integrator charm with the credentials and configs."""
     model = get_model(ops_test)
 
-    await model.wait_for_idle(apps=[APP_NAME], status="active", timeout=60 * 20)
+    logger.info("Setting credentials for %s", S3_INTEGRATOR)
+    await model.applications[S3_INTEGRATOR].set_config(s3_cloud_configs)
+    action = await model.units[f"{S3_INTEGRATOR}/0"].run_action(
+        "sync-s3-credentials", **s3_cloud_credentials
+    )
+    result = await action.wait()
+    assert result.results.get("return-code") == 0
+
+    logger.info("Waiting for %s to be active", S3_INTEGRATOR)
+    await model.wait_for_idle(
+        apps=[S3_INTEGRATOR],
+        status="active",
+        timeout=TIMEOUT,
+    )
+
+
+@pytest.mark.abort_on_fail
+async def test_trust(ops_test: OpsTest):
+    """Trust the velero-operator charm."""
+    logger.info("Trusting velero-operator charm")
+
+    model = get_model(ops_test)
+    await ops_test.juju("trust", APP_NAME, "--scope=cluster")
+
+    async with ops_test.fast_forward():
+        await model.wait_for_idle(
+            apps=[APP_NAME],
+            status="blocked",
+            raise_on_blocked=False,
+            timeout=TIMEOUT,
+            idle_period=30,
+        )
 
     for unit in model.applications[APP_NAME].units:
+        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
+
+
+@pytest.mark.abort_on_fail
+@pytest.mark.parametrize(
+    "integrator",
+    [
+        S3_INTEGRATOR,
+    ],
+)
+async def test_integrator_relation(ops_test: OpsTest, integrator: str):
+    """Test the relation between the velero-operator charm and the integrator charm."""
+    model = get_model(ops_test)
+
+    logger.info("Relating velero-operator to %s", integrator)
+    await model.integrate(APP_NAME, integrator)
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            timeout=TIMEOUT,
+        )
+    for unit in model.applications[APP_NAME].units:
         assert unit.workload_status_message == READY_MESSAGE
+
+    logger.info("Unrelating velero-operator from %s", integrator)
+    await ops_test.juju(*["remove-relation", APP_NAME, integrator])
+    await model.wait_for_idle(
+        apps=[APP_NAME],
+        status="blocked",
+        raise_on_blocked=False,
+        timeout=TIMEOUT,
+    )
+    for unit in model.applications[APP_NAME].units:
+        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
 
 
 @pytest.mark.abort_on_fail
 async def test_remove(ops_test: OpsTest, lightkube_client):
-    """Remove the application and assert that all resources are deleted."""
+    """Remove the applications and assert that all resources are deleted."""
     model = get_model(ops_test)
     velero = get_velero(model.name)
 
     await asyncio.gather(
+        model.remove_application(S3_INTEGRATOR),
         model.remove_application(APP_NAME),
         model.block_until(
             lambda: model.applications[APP_NAME].status == "unknown",
-            timeout=60 * 2,
+            timeout=TIMEOUT,
         ),
     )
 
