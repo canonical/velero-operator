@@ -11,9 +11,10 @@ from scenario import Relation
 
 from charm import VeleroOperatorCharm
 from constants import StorageRelation
-from velero import S3StorageProvider, VeleroError
+from velero import AzureStorageProvider, S3StorageProvider, VeleroError
 
 VELERO_IMAGE_CONFIG_KEY = "velero-image"
+VELERO_AZURE_PLUGIN_CONFIG_KEY = "velero-azure-plugin-image"
 USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
 VELERO_AWS_PLUGIN_CONFIG_KEY = "velero-aws-plugin-image"
 RELATIONS = "|".join([r.value for r in StorageRelation])
@@ -62,6 +63,7 @@ def mock_velero():
     [
         VELERO_IMAGE_CONFIG_KEY,
         VELERO_AWS_PLUGIN_CONFIG_KEY,
+        VELERO_AZURE_PLUGIN_CONFIG_KEY,
     ],
 )
 def test_invalid_image_config(image_key):
@@ -110,11 +112,12 @@ def test_charm_k8s_access_failed(mock_lightkube_client, code, expected_status):
 @patch("velero.Velero.check_velero_deployment")
 @patch("velero.Velero.check_velero_storage_locations")
 @pytest.mark.parametrize(
-    "deployment_ok, nodeagent_ok, has_rel, provider_ok, status, use_node_agent",
+    "deployment_ok, nodeagent_ok, has_many_rels, has_rel, provider_ok, status, use_node_agent",
     [
         # Deployment not ready
         (
             False,
+            True,
             True,
             True,
             True,
@@ -127,13 +130,25 @@ def test_charm_k8s_access_failed(mock_lightkube_client, code, expected_status):
             False,
             True,
             True,
+            True,
             testing.BlockedStatus(f"{NODE_AGENT_NOT_READY_MESSAGE}reason"),
+            True,
+        ),
+        # Has many relations
+        (
+            True,
+            True,
+            True,
+            True,
+            True,
+            testing.BlockedStatus(MANY_RELATIONS_ERROR_MESSAGE),
             True,
         ),
         # No relations
         (
             True,
             True,
+            False,
             False,
             True,
             testing.BlockedStatus(MISSING_RELATION_MESSAGE),
@@ -143,15 +158,16 @@ def test_charm_k8s_access_failed(mock_lightkube_client, code, expected_status):
         (
             True,
             True,
+            False,
             True,
             False,
             testing.BlockedStatus(f"{STORAGE_PROVIDER_NOT_READY_MESSAGE}reason"),
             True,
         ),
         # All good
-        (True, True, True, True, testing.ActiveStatus(READY_MESSAGE), True),
+        (True, True, False, True, True, testing.ActiveStatus(READY_MESSAGE), True),
         # All good
-        (True, False, True, True, testing.ActiveStatus(READY_MESSAGE), False),
+        (True, False, False, True, True, testing.ActiveStatus(READY_MESSAGE), False),
     ],
 )
 def test_on_update_status(
@@ -161,6 +177,7 @@ def test_on_update_status(
     mock_lightkube_client,
     deployment_ok,
     nodeagent_ok,
+    has_many_rels,
     has_rel,
     provider_ok,
     status,
@@ -177,9 +194,13 @@ def test_on_update_status(
 
     with (
         patch.object(
+            VeleroOperatorCharm, "has_many_storage_relations", new_callable=PropertyMock
+        ) as mock_many_rels,
+        patch.object(
             VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
         ) as mock_storage_rel,
     ):
+        mock_many_rels.return_value = has_many_rels
         mock_storage_rel.return_value = StorageRelation.S3 if has_rel else None
         ctx = testing.Context(VeleroOperatorCharm)
 
@@ -271,6 +292,11 @@ def test_on_remove(mock_velero, mock_lightkube_client):
     "relations",
     [
         [Relation(endpoint=StorageRelation.S3.value)],
+        [Relation(endpoint=StorageRelation.AZURE.value)],
+        [
+            Relation(endpoint=StorageRelation.S3.value),
+            Relation(endpoint=StorageRelation.AZURE.value),
+        ],
     ],
 )
 def test_storage_relation_properties(relations, mock_lightkube_client, mock_velero):
@@ -280,7 +306,12 @@ def test_storage_relation_properties(relations, mock_lightkube_client, mock_vele
 
     # Act and Assert
     with ctx(ctx.on.start(), testing.State(relations=relations)) as manager:
-        assert manager.charm.storage_relation == StorageRelation(relations[0].endpoint)
+        if len(relations) == 1:
+            assert manager.charm.storage_relation == StorageRelation(relations[0].endpoint)
+            assert not manager.charm.has_many_storage_relations
+        else:
+            assert manager.charm.storage_relation is None
+            assert manager.charm.has_many_storage_relations
 
 
 @pytest.mark.parametrize(
@@ -294,6 +325,16 @@ def test_storage_relation_properties(relations, mock_lightkube_client, mock_vele
                 "bucket": "test-bucket",
                 "access-key": "test-key",
                 "secret-key": "test=key",
+            },
+        ),
+        (
+            StorageRelation.AZURE,
+            AzureStorageProvider,
+            {
+                "container": "test-container",
+                "storage-account": "test-account",
+                "secret-key": "test-key",
+                "connection-protocol": "test-protocol",
             },
         ),
     ],
@@ -330,6 +371,10 @@ def test_storage_relation_changed_success(
             StorageRelation.S3,
             {"test": "test"},
         ),
+        (
+            StorageRelation.AZURE,
+            {"test": "test"},
+        ),
     ],
 )
 def test_storage_relation_changed_invalid_config(
@@ -350,6 +395,26 @@ def test_storage_relation_changed_invalid_config(
     # Assert
     assert state_out.unit_status.name == testing.BlockedStatus.name
     assert INVALID_CONFIG_MESSAGE in state_out.unit_status.message
+
+
+def test_storage_relation_changed_many_relations(mock_velero, mock_lightkube_client):
+    """Test that the relation_changed acts correctly when there are many relations."""
+    # Arrange
+    mock_velero.is_storage_configured.return_value = False
+    ctx = testing.Context(VeleroOperatorCharm)
+    s3_relation = Relation(endpoint=StorageRelation.S3.value)
+    azure_relation = Relation(endpoint=StorageRelation.AZURE.value)
+
+    # Act
+    state_out = ctx.run(
+        ctx.on.relation_changed(s3_relation),
+        testing.State(relations=[azure_relation, s3_relation]),
+    )
+
+    # Assert
+    mock_velero.remove_storage_locations.assert_called_once()
+    mock_velero.configure_storage_locations.assert_not_called()
+    assert state_out.unit_status == testing.BlockedStatus(MANY_RELATIONS_ERROR_MESSAGE)
 
 
 @pytest.mark.parametrize(

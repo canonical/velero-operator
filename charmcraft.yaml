@@ -43,6 +43,11 @@ config:
         The Velero AWS plugin container image to deploy
       default: "velero/velero-plugin-for-aws:v1.10.0"
       type: string
+    velero-azure-plugin-image:
+      description: |
+        The Velero Azure plugin container image to deploy
+      default: "velero/velero-plugin-for-microsoft-azure:v1.11.0"
+      type: string
 
 parts:
   charm:
@@ -67,5 +72,9 @@ parts:
 requires:
   s3-credentials:
     interface: s3
+    limit: 1
+    optional: true
+  azure-credentials:
+    interface: azure_storage
     limit: 1
     optional: true
