@@ -37,7 +37,7 @@ STORAGE_PROVIDER_NOT_READY_MESSAGE = "Velero Storage Provider is not ready: "
 MANY_RELATIONS_ERROR_MESSAGE = (
     f"Only one Storage Provider should be related at the time: [{RELATIONS}]"
 )
-K8S_API_ERROR_MESSAGE = "Failed to check if charm can access K8s API, check logs for details"
+K8S_API_ERROR_MESSAGE = "Failed to access K8s API, check logs for details"
 INVALID_CONFIG_MESSAGE = "Invalid configuration: "
 
 
@@ -451,3 +451,89 @@ def test_storage_relation_broken_error(mock_velero, mock_lightkube_client):
 
     # Assert
     assert state_out.unit_status == testing.BlockedStatus(REMOVE_PROVIDER_ERROR_MESSAGE)
+
+
+@pytest.mark.parametrize(
+    "use_node_agent,relation",
+    [
+        (False, StorageRelation.S3),
+        (True, StorageRelation.S3),
+        (False, None),
+        (True, None),
+    ],
+)
+def test_on_config_changed_success(
+    use_node_agent,
+    relation,
+    mock_lightkube_client,
+    mock_velero,
+):
+    """Test that the config_changed event is handled correctly."""
+    # Arrange
+    ctx = testing.Context(VeleroOperatorCharm)
+    relations = [Relation(endpoint=relation.value)] if relation else []
+
+    # Act
+    ctx.run(
+        ctx.on.config_changed(),
+        testing.State(
+            config={
+                USE_NODE_AGENT_CONFIG_KEY: use_node_agent,
+                VELERO_AWS_PLUGIN_CONFIG_KEY: "aws-image",
+                VELERO_IMAGE_CONFIG_KEY: "velero-image",
+            },
+            relations=relations,
+        ),
+    )
+
+    # Assert
+    if relation:
+        if relation == StorageRelation.S3:
+            mock_velero.update_plugin_image.assert_called_once_with(
+                mock_lightkube_client,
+                "aws-image",
+            )
+        elif relation == StorageRelation.AZURE:
+            mock_velero.update_plugin_image.assert_called_once_with(
+                mock_lightkube_client,
+                "azure-image",
+            )
+    else:
+        mock_velero.update_plugin_image.assert_not_called()
+
+    if use_node_agent:
+        mock_velero.remove_node_agent.assert_not_called()
+    else:
+        mock_velero.remove_node_agent.assert_called_once_with(
+            mock_lightkube_client,
+        )
+
+    mock_velero.update_velero_image.assert_called_once_with(
+        mock_lightkube_client, "velero-image", use_node_agent
+    )
+
+
+def test_on_config_changed_error(
+    mock_lightkube_client,
+    mock_velero,
+):
+    """Test that the config_changed event raises an error if update fails."""
+    # Arrange
+    ctx = testing.Context(VeleroOperatorCharm)
+    mock_velero.update_velero_image.side_effect = VeleroError()
+
+    # Act
+    state_out = ctx.run(
+        ctx.on.config_changed(),
+        testing.State(
+            config={
+                USE_NODE_AGENT_CONFIG_KEY: False,
+                VELERO_IMAGE_CONFIG_KEY: "velero-image",
+            },
+        ),
+    )
+
+    # Assert
+    assert state_out.unit_status == testing.BlockedStatus(
+        "Failed to update Velero configuration. See juju debug-log for details."
+    )

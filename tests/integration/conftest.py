@@ -145,7 +145,7 @@ def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
         config["s3-uri-style"] = "path"
     else:
         config["endpoint"] = os.environ.get("AWS_ENDPOINT", "https://s3.amazonaws.com")
-        config["s3-uri-style"] = os.environ.get("AWS_S3_URI_STYLE", "path")
+        config["s3-uri-style"] = os.environ.get("AWS_S3_URI_STYLE", "virtual")
         config["region"] = os.environ.get("AWS_REGION", "us-east-2")
 
     return config
