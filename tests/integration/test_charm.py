@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 TIMEOUT = 60 * 10
 USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
+VELERO_AWS_PLUGIN_IMAGE_KEY = "velero-aws-plugin-image"
 VELERO_IMAGE_CONFIG_KEY = "velero-image"
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
@@ -198,14 +199,14 @@ async def test_config_velero_image(ops_test: OpsTest):
 
 @pytest.mark.abort_on_fail
 @pytest.mark.parametrize(
-    "integrator",
-    [
-        S3_INTEGRATOR,
-    ],
+    "integrator,plugin_image_key",
+    [(S3_INTEGRATOR, VELERO_AWS_PLUGIN_IMAGE_KEY)],
 )
-async def test_integrator_relation(ops_test: OpsTest, integrator: str):
+async def test_integrator_relation(ops_test: OpsTest, integrator: str, plugin_image_key: str):
     """Test the relation between the velero-operator charm and the integrator charm."""
     model = get_model(ops_test)
+    app = model.applications[APP_NAME]
+    new_plugin_image = "velero-test-plugin-image"
 
     logger.info("Relating velero-operator to %s", integrator)
     await model.integrate(APP_NAME, integrator)
@@ -217,6 +218,18 @@ async def test_integrator_relation(ops_test: OpsTest, integrator: str):
         )
     for unit in model.applications[APP_NAME].units:
         assert unit.workload_status_message == READY_MESSAGE
+
+    await app.set_config({plugin_image_key: new_plugin_image})
+    async with ops_test.fast_forward():
+        await model.wait_for_idle(
+            apps=[APP_NAME], timeout=TIMEOUT, status="blocked", idle_period=30
+        )
+
+    await app.reset_config([plugin_image_key])
+    async with ops_test.fast_forward():
+        await model.wait_for_idle(
+            apps=[APP_NAME], timeout=TIMEOUT, status="active", idle_period=30
+        )
 
     logger.info("Unrelating velero-operator from %s", integrator)
     await ops_test.juju(*["remove-relation", APP_NAME, integrator])
