@@ -463,7 +463,7 @@ class Velero:
                     "spec": {
                         "containers": [
                             {
-                                "name": VELERO_NODE_AGENT_NAME,
+                                "name": VELERO_DEPLOYMENT_NAME,
                                 "image": new_image,
                             }
                         ]
@@ -478,7 +478,7 @@ class Velero:
                     "spec": {
                         "containers": [
                             {
-                                "name": VELERO_DEPLOYMENT_NAME,
+                                "name": VELERO_NODE_AGENT_NAME,
                                 "image": new_image,
                             }
                         ]
@@ -609,14 +609,15 @@ class Velero:
             availability = Velero._get_deployment_availability(deployment)
 
             if availability.status != "True":
+                message: str | None = availability.message
                 for pod in Velero._get_deployment_pods(kube_client, deployment, namespace):
                     for status in Velero._get_pod_container_statuses(pod):
                         if status.ready is False and status.state:
                             if status.state.waiting:
-                                raise VeleroError(status.state.waiting.message)
+                                message = status.state.waiting.reason
                             if status.state.terminated:
-                                raise VeleroError(status.state.terminated.message)
-                raise VeleroError(availability.message)
+                                message = status.state.terminated.reason
+                raise VeleroError(message or "Not Available")
 
         logger.info("Checking the Velero Deployment readiness")
         k8s_retry_check(check_deployment)
