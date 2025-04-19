@@ -175,7 +175,7 @@ def test_check_velero_deployment_unavailable_with_waiting_pod(mock_lightkube_cli
     ]
     mock_lightkube_client.get.return_value = mock_deployment
 
-    waiting_state = MagicMock(waiting=MagicMock(message="Image error"), terminated=None)
+    waiting_state = MagicMock(waiting=MagicMock(reason="Image error"), terminated=None)
     pod_status_1 = MagicMock(ready=True, state=None)
     pod_status_2 = MagicMock(ready=False, state=waiting_state)
     pod = MagicMock()
@@ -195,7 +195,7 @@ def test_check_velero_deployment_unavailable_with_terminated_pod(mock_lightkube_
     ]
     mock_lightkube_client.get.return_value = mock_deployment
 
-    terminated_state = MagicMock(waiting=None, terminated=MagicMock(message="Pod has terminated"))
+    terminated_state = MagicMock(waiting=None, terminated=MagicMock(reason="Pod has terminated"))
     pod_status = MagicMock(ready=False, state=terminated_state)
     pod = MagicMock()
     pod.status.containerStatuses = [pod_status]
