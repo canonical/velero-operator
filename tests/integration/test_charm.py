@@ -220,12 +220,14 @@ async def test_integrator_relation(ops_test: OpsTest, integrator: str):
 
     logger.info("Unrelating velero-operator from %s", integrator)
     await ops_test.juju(*["remove-relation", APP_NAME, integrator])
-    await model.wait_for_idle(
-        apps=[APP_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(
+            apps=[APP_NAME],
+            status="blocked",
+            raise_on_blocked=False,
+            timeout=TIMEOUT,
+            idle_period=30,
+        )
     for unit in model.applications[APP_NAME].units:
         assert unit.workload_status_message == MISSING_RELATION_MESSAGE
 
