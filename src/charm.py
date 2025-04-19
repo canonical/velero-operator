@@ -5,6 +5,7 @@
 """The Velero Charm."""
 
 import logging
+from functools import cached_property
 from typing import Optional, Union
 
 import ops
@@ -78,29 +79,15 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
     # PROPERTIES
 
-    @property
+    @cached_property
     def lightkube_client(self):
         """The lightkube client to interact with the Kubernetes cluster."""
-        if not self._lightkube_client:
-            self._lightkube_client = Client(
-                field_manager="velero-operator-lightkube", namespace=self.model.name
-            )
-        return self._lightkube_client
+        return Client(field_manager="velero-operator-lightkube", namespace=self.model.name)
 
-    @lightkube_client.setter
-    def lightkube_client(self, value):
-        self._lightkube_client = value
-
-    @property
+    @cached_property
     def velero(self):
         """The Velero class to interact with the Velero binary."""
-        if not self._velero:
-            self._velero = Velero(VELERO_BINARY_PATH, self.model.name)
-        return self._velero
-
-    @velero.setter
-    def velero(self, value):
-        self._velero = value
+        return Velero(VELERO_BINARY_PATH, self.model.name)
 
     @property
     def storage_relation(self) -> Optional[StorageRelation]:
