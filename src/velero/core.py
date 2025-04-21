@@ -444,6 +444,38 @@ class Velero:
             except ApiError:
                 pass
 
+    def run_cli_command(self, command: List[str]) -> str:
+        """Run a Velero CLI command.
+
+        Args:
+            command (List[str]): The command to run, as a list of strings.
+
+        Returns:
+            str: The output of the command.
+
+        Raises:
+            VeleroError: If the command fails.
+            ValueError: If the command is empty.
+        """
+        if not command:
+            raise ValueError("Command cannot be empty")
+
+        try:
+            result = subprocess.check_output(
+                [self._velero_binary_path, *command, f"--namespace={self._namespace}"],
+                text=True,
+            )
+            return result.strip()
+        except subprocess.CalledProcessError as cpe:
+            error_msg = (
+                f"'velero {' '.join(command)}' returned non-zero exit code: {cpe.returncode}."
+            )
+            logging.error(error_msg)
+            logging.error("stdout: %s", cpe.stdout)
+            logging.error("stderr: %s", cpe.stderr)
+
+            raise VeleroError(error_msg) from cpe
+
     # CHECKERS
 
     @staticmethod
