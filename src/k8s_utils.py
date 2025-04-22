@@ -5,13 +5,14 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 from lightkube import Client
 from lightkube.core.exceptions import ApiError
 from lightkube.core.resource import GlobalResource, NamespacedResource
+from lightkube.models.core_v1 import ServicePort, ServiceSpec
 from lightkube.models.meta_v1 import ObjectMeta
-from lightkube.resources.core_v1 import Secret
+from lightkube.resources.core_v1 import Secret, Service
 from tenacity import (
     Retrying,
     retry_if_exception_type,
@@ -166,4 +167,39 @@ def k8s_create_secret(
         )
     except ApiError as ae:
         logging.error("Failed to create secret '%s' in namespace '%s': %s", name, namespace, ae)
+        raise ae
+
+
+def k8s_create_cluster_ip_service(
+    kube_client: Client,
+    name: str,
+    namespace: str,
+    selector: Dict[str, str],
+    ports: List[ServicePort],
+    labels: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Create a Kubernetes service.
+
+    Args:
+        kube_client (Client): The Kubernetes client used to interact with the cluster.
+        name (str): The name of the service.
+        namespace (str): The namespace of the service.
+        ports (List[ServicePort]): The ports for the service.
+        selector (Dict[str, str]): The selector for the service.
+        labels (Optional[Dict[str, Any]]): Optional labels for the service.
+
+    Raises:
+        ApiError: If the service cannot be created.
+    """
+    try:
+        kube_client.create(
+            Service(
+                apiVersion="v1",
+                kind="Service",
+                metadata=ObjectMeta(name=name, namespace=namespace, labels=labels),
+                spec=ServiceSpec(type="ClusterIP", selector=selector, ports=ports),
+            )
+        )
+    except ApiError as ae:
+        logging.error("Failed to create service '%s' in namespace '%s': %s", name, namespace, ae)
         raise ae

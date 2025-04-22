@@ -10,12 +10,18 @@ from typing import Optional, Union
 import ops
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from charms.data_platform_libs.v0.s3 import S3Requirer
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from lightkube import ApiError, Client
 from lightkube.resources.rbac_authorization_v1 import ClusterRole
 from pydantic import ValidationError
 
 from config import CharmConfig
-from constants import VELERO_BINARY_PATH, StorageRelation
+from constants import (
+    VELERO_BINARY_PATH,
+    VELERO_METRICS_PORT,
+    VELERO_METRICS_SERVICE_NAME,
+    StorageRelation,
+)
 from velero import (
     S3StorageProvider,
     StorageProviderError,
@@ -66,6 +72,22 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             return
 
         self.s3_integrator = S3Requirer(self, StorageRelation.S3.value)
+
+        self._scraping = MetricsEndpointProvider(
+            self,
+            relation_name="metrics-endpoint",
+            jobs=[
+                {
+                    "static_configs": [
+                        {
+                            "targets": [
+                                f"{VELERO_METRICS_SERVICE_NAME}.{self.model.name}.svc:{VELERO_METRICS_PORT}"
+                            ]
+                        }
+                    ]
+                }
+            ],
+        )
 
         self.framework.observe(self.on.install, self._reconcile)
         self.framework.observe(self.on.update_status, self._reconcile)
@@ -174,6 +196,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         self._log_and_set_status(ops.MaintenanceStatus("Deploying Velero on the cluster"))
 
         self.velero.install(
+            self.lightkube_client,
             self.config.velero_image,
             self.config.use_node_agent,
         )

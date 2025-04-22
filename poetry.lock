@@ -573,6 +573,26 @@ files = [
 markers = {fmt = "platform_system == \"Windows\"", integration = "sys_platform == \"win32\"", lint = "platform_system == \"Windows\" or sys_platform == \"win32\"", unit = "sys_platform == \"win32\"", update-requirements = "os_name == \"nt\""}
 
 [[package]]
+name = "cosl"
+version = "0.0.57"
+description = "Utils for COS Lite charms"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "cosl-0.0.57-py3-none-any.whl", hash = "sha256:0f2bac6dd84a636747e63acd6cb277f1cc642d3c5f80caa13cd9b51644b8ff67"},
+    {file = "cosl-0.0.57.tar.gz", hash = "sha256:7ed489973e6e72a9b9533dddf0da1df3499a0aacdc513ad0b579cb04b4671b04"},
+]
+
+[package.dependencies]
+lightkube = ">=v0.15.4"
+ops = "*"
+pydantic = "*"
+pyyaml = "*"
+tenacity = "*"
+typing-extensions = "*"
+
+[[package]]
 name = "coverage"
 version = "7.7.0"
 description = "Code coverage measurement for Python"
@@ -3063,4 +3083,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "cd10f65775d83529699acab337a2dcd09f92ac0ccc65b865cd6536011e8fcd55"
+content-hash = "72cc69f565ab51efca80551d369d2ec969b588eeb864c7db60da7fbedbded4c7"
