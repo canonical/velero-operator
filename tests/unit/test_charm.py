@@ -214,7 +214,7 @@ def test_on_install(velero_installed, mock_velero, mock_lightkube_client):
     if velero_installed:
         mock_velero.install.assert_not_called()
     else:
-        mock_velero.install.assert_called_once_with("image", False)
+        mock_velero.install.assert_called_once_with(mock_lightkube_client, "image", False)
     assert state_out.unit_status == testing.BlockedStatus(MISSING_RELATION_MESSAGE)
 
 

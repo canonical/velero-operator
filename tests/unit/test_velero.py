@@ -85,9 +85,9 @@ def test_velero_correct_crb_name():
     "use_node_agent",
     [True, False],
 )
-def test_install_success(use_node_agent, mock_run, velero):
+def test_install_success(use_node_agent, mock_run, velero, mock_lightkube_client):
     """Check velero.install calls the binary successfully with the expected arguments."""
-    velero.install(VELERO_IMAGE, use_node_agent)
+    velero.install(mock_lightkube_client, VELERO_IMAGE, use_node_agent)
 
     expected_call_args = [VELERO_BINARY, "install"]
     expected_call_args.extend(VELERO_EXPECTED_FLAGS)
@@ -95,15 +95,26 @@ def test_install_success(use_node_agent, mock_run, velero):
     mock_run.assert_called_once_with(
         expected_call_args, check=True, capture_output=True, text=True
     )
+    mock_lightkube_client.create.assert_called_once()
 
 
-def test_install_failed(caplog, mock_run_failing, velero):
+def test_install_run_failed(caplog, mock_run_failing, velero, mock_lightkube_client):
     """Check velero.install raises a VeleroError when the subprocess call fails."""
     with pytest.raises(VeleroError):
-        velero.install(VELERO_IMAGE, False)
+        velero.install(mock_lightkube_client, VELERO_IMAGE, False)
     assert "'velero install' command returned non-zero exit code: 1." in caplog.text
     assert "stdout: stdout" in caplog.text
     assert "stderr: stderr" in caplog.text
+
+
+def test_install_api_error(caplog, mock_run, velero, mock_lightkube_client):
+    """Check velero.install raises a VeleroError when the API call fails."""
+    mock_lightkube_client.create.side_effect = ApiError(
+        request=MagicMock(),
+        response=MagicMock(),
+    )
+    with pytest.raises(VeleroError):
+        velero.install(mock_lightkube_client, VELERO_IMAGE, False)
 
 
 def test_check_velero_deployment_success(mock_lightkube_client):
