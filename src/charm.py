@@ -22,6 +22,7 @@ from velero import (
     StorageProviderError,
     Velero,
     VeleroError,
+    VeleroStatusError,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,19 +31,13 @@ logger = logging.getLogger(__name__)
 class CharmError(Exception):
     """Base class for all charm errors."""
 
-    pass
-
 
 class CharmPermissionError(CharmError, PermissionError):
     """Raised when the charm does not have permission to perform an action."""
 
-    pass
-
 
 class CharmConfigError(CharmError):
     """Raised when charm config is invalid."""
-
-    pass
 
 
 class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
@@ -98,7 +93,10 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
             if not self.velero.is_installed(self.lightkube_client, self.config.use_node_agent):
                 self._log_and_set_status(ops.MaintenanceStatus("Deploying Velero on the cluster"))
-                self._install()
+                self.velero.install(
+                    self.config.velero_image,
+                    self.config.use_node_agent,
+                )
 
             if isinstance(event, ops.ConfigChangedEvent):
                 self._log_and_set_status(ops.MaintenanceStatus("Updating Velero configuration"))
@@ -109,7 +107,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             # triggered, so the remove/configure logic is called twice.
             if isinstance(event, (ops.RelationBrokenEvent, ops.RelationChangedEvent)):
                 self._log_and_set_status(ops.MaintenanceStatus("Removing Velero Storage Provider"))
-                self._remove_storage_locations()
+                self.velero.remove_storage_locations(self.lightkube_client)
 
             if self.storage_relation and not self.velero.is_storage_configured(
                 self.lightkube_client
@@ -121,34 +119,24 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
             self._check_status()
             self._log_and_set_status(ops.ActiveStatus("Unit is Ready"))
-        except CharmError as ce:
-            self._log_and_set_status(ops.BlockedStatus(str(ce)))
+        except (CharmError, VeleroError) as e:
+            message = (
+                str(e)
+                if isinstance(e, (CharmError, VeleroStatusError))
+                else f"{str(e)}. See juju debug-log for details."
+            )
+            self._log_and_set_status(ops.BlockedStatus(message))
         except ApiError:
             self._log_and_set_status(
-                ops.BlockedStatus("Failed to access K8s API, check logs for details")
+                ops.BlockedStatus("Failed to access K8s API. See juju debug-log for details.")
             )
-
-    def _install(self) -> None:
-        """Handle the install event.
-
-        Raises:
-            CharmError: If Velero installation fails
-        """
-        try:
-            self.velero.install(
-                self.config.velero_image,
-                self.config.use_node_agent,
-            )
-        except VeleroError as ve:
-            raise CharmError(
-                "Failed to install Velero on the cluster. See juju debug-log for details."
-            ) from ve
 
     def _configure_storage_locations(self) -> None:
-        """Handle the configure event.
+        """Configure the Velero storage locations.
 
         Raises:
             CharmError: If Velero storage configuration fails
+            VeleroError: If Velero configuration fails
         """
         try:
             if self.storage_relation == StorageRelation.S3:
@@ -162,49 +150,25 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             self.velero.configure_storage_locations(self.lightkube_client, provider)
         except StorageProviderError as ve:
             raise CharmError(f"Invalid configuration: {str(ve)}") from ve
-        except VeleroError as ve:
-            raise CharmError(
-                "Failed to configure Velero Storage Provider. See juju debug-log for details."
-            ) from ve
 
     def _check_status(self) -> None:
-        """Handle the update-status event.
+        """Check the status of Velero and its components.
 
         Raises:
             CharmError: If Velero status check fails
+            VeleroStatusError: If Velero status check fails
+            ApiError: If the charm cannot access the K8s API
         """
-        try:
-            Velero.check_velero_deployment(self.lightkube_client, self.model.name)
-        except (VeleroError, ApiError) as ve:
-            raise CharmError(f"Velero Deployment is not ready: {ve}") from ve
+        Velero.check_velero_deployment(self.lightkube_client, self.model.name)
 
         if self.config.use_node_agent:
-            try:
-                Velero.check_velero_node_agent(self.lightkube_client, self.model.name)
-            except (VeleroError, ApiError) as ve:
-                raise CharmError(f"Velero NodeAgent is not ready: {ve}") from ve
+            Velero.check_velero_node_agent(self.lightkube_client, self.model.name)
 
         relations = "|".join([r.value for r in StorageRelation])
         if not self.storage_relation:
             raise CharmError(f"Missing relation: [{relations}]")
 
-        try:
-            Velero.check_velero_storage_locations(self.lightkube_client, self.model.name)
-        except (VeleroError, ApiError) as ve:
-            raise CharmError(f"Velero Storage Provider is not ready: {ve}") from ve
-
-    def _remove_storage_locations(self) -> None:
-        """Handle the remove-storage-locations event.
-
-        Raises:
-            CharmError: If Velero storage configuration fails
-        """
-        try:
-            self.velero.remove_storage_locations(self.lightkube_client)
-        except VeleroError as ve:
-            raise CharmError(
-                "Failed to delete Velero Storage Provider. See juju debug-log for details."
-            ) from ve
+        Velero.check_velero_storage_locations(self.lightkube_client, self.model.name)
 
     def _on_remove(self, event: ops.RemoveEvent) -> None:
         """Handle the remove event."""
@@ -215,24 +179,21 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         """Handle the config-changed event.
 
         Raises:
-            CharmError: If Velero configuration fails
+            VeleroError: If Velero configuration fails
         """
-        try:
-            if self.storage_relation == StorageRelation.S3:
-                self.velero.update_plugin_image(
-                    self.lightkube_client, self.config.velero_aws_plugin_image
-                )
-
-            if not self.config.use_node_agent:
-                self.velero.remove_node_agent(self.lightkube_client)
-
-            self.velero.update_velero_image(
-                self.lightkube_client, self.config.velero_image, self.config.use_node_agent
+        if self.storage_relation == StorageRelation.S3:
+            self.velero.update_plugin_image(
+                self.lightkube_client, self.config.velero_aws_plugin_image
             )
-        except VeleroError as ve:
-            raise CharmError(
-                "Failed to update Velero configuration. See juju debug-log for details."
-            ) from ve
+
+        if not self.config.use_node_agent:
+            self.velero.remove_node_agent(self.lightkube_client)
+
+        self.velero.update_velero_deployment_image(self.lightkube_client, self.config.velero_image)
+        if self.config.use_node_agent:
+            self.velero.update_velero_node_agent_image(
+                self.lightkube_client, self.config.velero_image
+            )
 
     # HELPER METHODS
 

@@ -120,13 +120,12 @@ async def test_trust(ops_test: OpsTest):
     model = get_model(ops_test)
     await ops_test.juju("trust", APP_NAME, "--scope=cluster")
 
-    async with ops_test.fast_forward():
+    async with ops_test.fast_forward(fast_interval="60s"):
         await model.wait_for_idle(
             apps=[APP_NAME],
             status="blocked",
             raise_on_blocked=False,
             timeout=TIMEOUT,
-            idle_period=30,
         )
 
     for unit in model.applications[APP_NAME].units:
@@ -176,10 +175,8 @@ async def test_config_velero_image(ops_test: OpsTest):
     new_image = "velero-test"
 
     await app.set_config({VELERO_IMAGE_CONFIG_KEY: new_image})
-    async with ops_test.fast_forward():
-        await model.wait_for_idle(
-            apps=[APP_NAME], timeout=TIMEOUT, status="blocked", idle_period=30
-        )
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked")
 
     for unit in model.applications[APP_NAME].units:
         assert DEPLOYMENT_IS_NOT_READY_MESSAGE in unit.workload_status_message and (
@@ -188,10 +185,8 @@ async def test_config_velero_image(ops_test: OpsTest):
         )
 
     await app.reset_config([VELERO_IMAGE_CONFIG_KEY])
-    async with ops_test.fast_forward():
-        await model.wait_for_idle(
-            apps=[APP_NAME], timeout=TIMEOUT, status="blocked", idle_period=30
-        )
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked")
 
     for unit in model.applications[APP_NAME].units:
         assert unit.workload_status_message == MISSING_RELATION_MESSAGE
@@ -220,16 +215,12 @@ async def test_integrator_relation(ops_test: OpsTest, integrator: str, plugin_im
         assert unit.workload_status_message == READY_MESSAGE
 
     await app.set_config({plugin_image_key: new_plugin_image})
-    async with ops_test.fast_forward():
-        await model.wait_for_idle(
-            apps=[APP_NAME], timeout=TIMEOUT, status="blocked", idle_period=30
-        )
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked")
 
     await app.reset_config([plugin_image_key])
-    async with ops_test.fast_forward():
-        await model.wait_for_idle(
-            apps=[APP_NAME], timeout=TIMEOUT, status="active", idle_period=30
-        )
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="active")
 
     logger.info("Unrelating velero-operator from %s", integrator)
     await ops_test.juju(*["remove-relation", APP_NAME, integrator])
@@ -239,7 +230,6 @@ async def test_integrator_relation(ops_test: OpsTest, integrator: str, plugin_im
             status="blocked",
             raise_on_blocked=False,
             timeout=TIMEOUT,
-            idle_period=30,
         )
     for unit in model.applications[APP_NAME].units:
         assert unit.workload_status_message == MISSING_RELATION_MESSAGE
