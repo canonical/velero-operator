@@ -643,7 +643,15 @@ class Velero:
 
     @staticmethod
     def _get_pod_container_statuses(pod: Pod) -> List[ContainerStatus]:
-        return pod.status.containerStatuses if pod.status and pod.status.containerStatuses else []
+        if pod.status:
+            container_statuses = (
+                pod.status.containerStatuses if pod.status.containerStatuses else []
+            )
+            init_container_statuses = (
+                pod.status.initContainerStatuses if pod.status.initContainerStatuses else []
+            )
+            return container_statuses + init_container_statuses
+        return []
 
     @staticmethod
     def check_velero_deployment(
