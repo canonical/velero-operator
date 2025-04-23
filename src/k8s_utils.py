@@ -102,7 +102,7 @@ def k8s_remove_resource(kube_client: Client, resource: K8sResource, namespace: s
 def k8s_retry_check(
     check_func: Callable[[], None],
     *,
-    retry_exceptions: Tuple[Type[BaseException], ...] = (),
+    retry_exceptions: Tuple[Type[BaseException], ...] = (ApiError,),
     attempts: int = K8S_CHECK_ATTEMPTS,
     delay: float = K8S_CHECK_DELAY,
     min_successful: int = K8S_CHECK_OBSERVATIONS,
@@ -124,7 +124,7 @@ def k8s_retry_check(
         wait=wait_fixed(delay),
         retry=(
             retry_if_result(lambda obs: obs < min_successful)
-            | retry_if_exception_type((ApiError,) + retry_exceptions)
+            | retry_if_exception_type(retry_exceptions)
         ),
         reraise=True,
     ):

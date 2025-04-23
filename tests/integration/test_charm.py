@@ -13,16 +13,21 @@ from juju.model import Model
 from lightkube import Client
 from lightkube.core.exceptions import ApiError
 from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
+from lightkube.resources.apps_v1 import DaemonSet
 from pytest_operator.plugin import OpsTest
 
+from constants import VELERO_NODE_AGENT_NAME
 from velero import Velero
 
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 60 * 10
 USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
+VELERO_AWS_PLUGIN_IMAGE_KEY = "velero-aws-plugin-image"
+VELERO_IMAGE_CONFIG_KEY = "velero-image"
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
+DEFAULT_VELERO_IMAGE = METADATA["config"]["options"][VELERO_IMAGE_CONFIG_KEY]["default"]
 
 S3_INTEGRATOR = "s3-integrator"
 S3_INTEGRATOR_CHANNEL = "latest/stable"
@@ -32,6 +37,7 @@ UNTRUST_ERROR_MESSAGE = (
 )
 READY_MESSAGE = "Unit is Ready"
 MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials]"
+DEPLOYMENT_IS_NOT_READY_MESSAGE = "Velero Deployment is not ready: "
 
 
 @pytest.fixture(scope="session")
@@ -114,13 +120,12 @@ async def test_trust(ops_test: OpsTest):
     model = get_model(ops_test)
     await ops_test.juju("trust", APP_NAME, "--scope=cluster")
 
-    async with ops_test.fast_forward():
+    async with ops_test.fast_forward(fast_interval="60s"):
         await model.wait_for_idle(
             apps=[APP_NAME],
             status="blocked",
             raise_on_blocked=False,
             timeout=TIMEOUT,
-            idle_period=30,
         )
 
     for unit in model.applications[APP_NAME].units:
@@ -128,15 +133,75 @@ async def test_trust(ops_test: OpsTest):
 
 
 @pytest.mark.abort_on_fail
+async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
+    """Test the config-changed hook for the use-node-agent config option."""
+    logger.info("Testing use-node-agent config option")
+
+    model = get_model(ops_test)
+    app = model.applications[APP_NAME]
+
+    await asyncio.gather(
+        app.set_config({USE_NODE_AGENT_CONFIG_KEY: "false"}),
+        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT),
+    )
+
+    try:
+        lightkube_client.get(DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name)
+        assert False, "DaemonSet was not deleted"
+    except ApiError as ae:
+        if ae.response.status_code != 404:
+            raise ae
+
+    await asyncio.gather(
+        app.set_config({USE_NODE_AGENT_CONFIG_KEY: "true"}),
+        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT),
+    )
+
+    try:
+        lightkube_client.get(DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name)
+    except ApiError as ae:
+        if ae.response.status_code != 404:
+            raise ae
+        assert False, "DaemonSet was not created"
+
+
+@pytest.mark.abort_on_fail
+async def test_config_velero_image(ops_test: OpsTest):
+    """Test the config-changed hook for the velero-image config option."""
+    logger.info("Testing velero-image config option")
+
+    model = get_model(ops_test)
+    app = model.applications[APP_NAME]
+    new_image = "velero-test"
+
+    await app.set_config({VELERO_IMAGE_CONFIG_KEY: new_image})
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked")
+
+    for unit in model.applications[APP_NAME].units:
+        assert DEPLOYMENT_IS_NOT_READY_MESSAGE in unit.workload_status_message and (
+            "ImagePullBackOff" in unit.workload_status_message
+            or "ErrImagePull" in unit.workload_status_message
+        )
+
+    await app.reset_config([VELERO_IMAGE_CONFIG_KEY])
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked")
+
+    for unit in model.applications[APP_NAME].units:
+        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
+
+
+@pytest.mark.abort_on_fail
 @pytest.mark.parametrize(
-    "integrator",
-    [
-        S3_INTEGRATOR,
-    ],
+    "integrator,plugin_image_key",
+    [(S3_INTEGRATOR, VELERO_AWS_PLUGIN_IMAGE_KEY)],
 )
-async def test_integrator_relation(ops_test: OpsTest, integrator: str):
+async def test_integrator_relation(ops_test: OpsTest, integrator: str, plugin_image_key: str):
     """Test the relation between the velero-operator charm and the integrator charm."""
     model = get_model(ops_test)
+    app = model.applications[APP_NAME]
+    new_plugin_image = "velero-test-plugin-image"
 
     logger.info("Relating velero-operator to %s", integrator)
     await model.integrate(APP_NAME, integrator)
@@ -149,14 +214,23 @@ async def test_integrator_relation(ops_test: OpsTest, integrator: str):
     for unit in model.applications[APP_NAME].units:
         assert unit.workload_status_message == READY_MESSAGE
 
+    await app.set_config({plugin_image_key: new_plugin_image})
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked")
+
+    await app.reset_config([plugin_image_key])
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="active")
+
     logger.info("Unrelating velero-operator from %s", integrator)
     await ops_test.juju(*["remove-relation", APP_NAME, integrator])
-    await model.wait_for_idle(
-        apps=[APP_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(
+            apps=[APP_NAME],
+            status="blocked",
+            raise_on_blocked=False,
+            timeout=TIMEOUT,
+        )
     for unit in model.applications[APP_NAME].units:
         assert unit.workload_status_message == MISSING_RELATION_MESSAGE
 
