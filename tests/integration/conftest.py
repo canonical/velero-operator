@@ -12,11 +12,16 @@ import uuid
 import boto3
 import botocore.exceptions
 import pytest
+from lightkube import ApiError, Client, codecs
+from lightkube.models.meta_v1 import ObjectMeta
+from lightkube.resources.core_v1 import Namespace
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 logger = logging.getLogger(__name__)
 MICROCEPH_BUCKET = "testbucket"
 MICROCEPH_RGW_PORT = 7480
+K8S_TEST_NAMESPACE = "velero-integration-tests"
+K8S_TEST_RESOURCES_YAML_PATH = "./tests/integration/resources/test_resources.yaml"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -149,3 +154,11 @@ def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
         config["region"] = os.environ.get("AWS_REGION", "us-east-2")
 
     return config
+
+
+@pytest.fixture(scope="session")
+def lightkube_client() -> Client:
+    """Return a lightkube client to use in this session."""
+    client = Client(field_manager="integration-tests")
+    return client
+

@@ -147,7 +147,7 @@ def test_check_velero_deployment_unavailable(mock_lightkube_client):
     assert str(ve.value) == "Velero Deployment is not ready: not ready"
 
 
-def test_check_velero_deployment_unavailable_no_pods(mock_lightkube_client):
+def test_check_velero_deployment_unavailable_no_pod_status(mock_lightkube_client):
     """Check check_velero_deployment raises a VeleroError when there are no pods."""
     mock_deployment = MagicMock()
     mock_deployment.status.conditions = [
@@ -156,7 +156,7 @@ def test_check_velero_deployment_unavailable_no_pods(mock_lightkube_client):
     mock_lightkube_client.get.return_value = mock_deployment
 
     pod = MagicMock()
-    pod.status.containerStatuses = []
+    pod.status = None
     mock_lightkube_client.list.return_value = [pod]
 
     with pytest.raises(VeleroError) as ve:
@@ -196,6 +196,7 @@ def test_check_velero_deployment_unavailable_with_waiting_pod(mock_lightkube_cli
     pod_status_2 = MagicMock(ready=False, state=waiting_state)
     pod = MagicMock()
     pod.status.containerStatuses = [pod_status_1, pod_status_2]
+    pod.status.initContainerStatuses = []
     mock_lightkube_client.list.return_value = [pod]
 
     with pytest.raises(VeleroError) as ve:
@@ -214,7 +215,8 @@ def test_check_velero_deployment_unavailable_with_terminated_pod(mock_lightkube_
     terminated_state = MagicMock(waiting=None, terminated=MagicMock(reason="Pod has terminated"))
     pod_status = MagicMock(ready=False, state=terminated_state)
     pod = MagicMock()
-    pod.status.containerStatuses = [pod_status]
+    pod.status.containerStatuses = []
+    pod.status.initContainerStatuses = [pod_status]
     mock_lightkube_client.list.return_value = [pod]
 
     with pytest.raises(VeleroError) as ve:
