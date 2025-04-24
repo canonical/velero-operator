@@ -162,3 +162,40 @@ def lightkube_client() -> Client:
     client = Client(field_manager="integration-tests")
     return client
 
+
+@pytest.fixture(scope="module")
+def k8s_test_resources(lightkube_client: Client):
+    """Set up the test K8s resources."""
+    namespace = Namespace(metadata=ObjectMeta(name=K8S_TEST_NAMESPACE))
+    test_resources = {
+        "namespace": namespace,
+        "resources": [],
+    }
+
+    try:
+        lightkube_client.create(namespace)
+        logger.info("Created test K8s namespace: %s", K8S_TEST_NAMESPACE)
+    except ApiError as e:
+        if e.status.code == 409:
+            logger.warning("Namespace %s already exists, skipping creation", K8S_TEST_NAMESPACE)
+        else:
+            raise
+
+    with open(K8S_TEST_RESOURCES_YAML_PATH) as f:
+        for obj in codecs.load_all_yaml(f):
+            if obj.metadata and not obj.metadata.namespace:
+                obj.metadata.namespace = K8S_TEST_NAMESPACE
+            try:
+                lightkube_client.create(obj)
+                logger.info("Created %s in namespace %s", obj.kind, K8S_TEST_NAMESPACE)
+            except ApiError as e:
+                if e.status.code == 409:
+                    logger.warning("Resource %s already exists, skipping creation", obj.kind)
+                else:
+                    raise
+            test_resources["resources"].append(obj)
+
+    yield test_resources
+
+    lightkube_client.delete(Namespace, K8S_TEST_NAMESPACE)
+    logger.info("Deleted test K8s namespace: %s", K8S_TEST_NAMESPACE)

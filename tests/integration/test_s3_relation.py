@@ -4,6 +4,7 @@
 
 import asyncio
 import logging
+import uuid
 
 import pytest
 from helpers import (
@@ -13,6 +14,8 @@ from helpers import (
     TIMEOUT,
     get_model,
 )
+from lightkube import ApiError
+from lightkube.resources.core_v1 import Namespace
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
@@ -22,6 +25,7 @@ DEPLOYMENT_IMAGE_ERROR_MESSAGE_2 = "Velero Deployment is not ready: ErrImagePull
 VELERO_AWS_PLUGIN_IMAGE_KEY = "velero-aws-plugin-image"
 S3_INTEGRATOR = "s3-integrator"
 S3_INTEGRATOR_CHANNEL = "latest/stable"
+BACKUP_NAME = f"test-backup-{uuid.uuid4()}"
 
 
 @pytest.mark.abort_on_fail
@@ -113,6 +117,58 @@ async def test_configure_s3_plugin_image(ops_test: OpsTest):
         assert unit.workload_status_message == READY_MESSAGE
 
 
+@pytest.mark.abort_on_fail
+async def test_s3_backup(ops_test: OpsTest, k8s_test_resources):
+    """Test the backup functionality of the velero-operator charm."""
+    model = get_model(ops_test)
+    app = model.applications[APP_NAME]
+    test_namespace = k8s_test_resources["namespace"].metadata.name
+
+    logger.info("Creating a backup")
+    action = await app.units[0].run_action(
+        "run-cli", command=f"backup create {BACKUP_NAME} --include-namespaces {test_namespace}"
+    )
+    action = await action.wait()
+    assert action.status == "completed"
+
+    logger.info("Verifying the backup")
+    action = await app.units[0].run_action("run-cli", command=f"backup describe {BACKUP_NAME}")
+    action = await action.wait()
+    assert action.status == "completed"
+
+
+@pytest.mark.abort_on_fail
+async def test_s3_restore(ops_test: OpsTest, k8s_test_resources, lightkube_client):
+    """Test the restore functionality of the velero-operator charm."""
+    model = get_model(ops_test)
+    app = model.applications[APP_NAME]
+    test_resources = k8s_test_resources["resources"]
+    test_namespace = k8s_test_resources["namespace"].metadata.name
+    lightkube_client.delete(Namespace, test_namespace)
+
+    logger.info("Creating a restore")
+    action = await app.units[0].run_action(
+        "run-cli", command=f"restore create --from-backup {BACKUP_NAME}"
+    )
+    action = await action.wait()
+    assert action.status == "completed"
+
+    logger.info("Verifying the restore")
+    for resource in test_resources:
+        try:
+            lightkube_client.get(
+                type(resource), name=resource.metadata.name, namespace=test_namespace
+            )
+        except ApiError as ae:
+            if ae.response.status_code == 404:
+                assert (
+                    False
+                ), f"Resource {resource.kind} {resource.metadata.name} not found after restore"
+            else:
+                raise
+
+
+@pytest.mark.abort_on_fail
 async def test_unrelate_s3_integrator(ops_test: OpsTest):
     """Test the unrelation between the velero-operator charm and the s3-integrator charm."""
     model = get_model(ops_test)
