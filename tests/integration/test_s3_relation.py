@@ -9,6 +9,8 @@ import uuid
 import pytest
 from helpers import (
     APP_NAME,
+    DEPLOYMENT_IMAGE_ERROR_MESSAGE_1,
+    DEPLOYMENT_IMAGE_ERROR_MESSAGE_2,
     MISSING_RELATION_MESSAGE,
     READY_MESSAGE,
     TIMEOUT,
@@ -20,8 +22,6 @@ from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
 
-DEPLOYMENT_IMAGE_ERROR_MESSAGE_1 = "Velero Deployment is not ready: ImagePullBackOff"
-DEPLOYMENT_IMAGE_ERROR_MESSAGE_2 = "Velero Deployment is not ready: ErrImagePull"
 VELERO_AWS_PLUGIN_IMAGE_KEY = "velero-aws-plugin-image"
 S3_INTEGRATOR = "s3-integrator"
 S3_INTEGRATOR_CHANNEL = "latest/stable"

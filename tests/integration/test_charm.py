@@ -8,6 +8,8 @@ import logging
 import pytest
 from helpers import (
     APP_NAME,
+    DEPLOYMENT_IMAGE_ERROR_MESSAGE_1,
+    DEPLOYMENT_IMAGE_ERROR_MESSAGE_2,
     MISSING_RELATION_MESSAGE,
     TIMEOUT,
     UNTRUST_ERROR_MESSAGE,
@@ -20,8 +22,6 @@ from lightkube.resources.core_v1 import Secret, ServiceAccount
 from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
 from pytest_operator.plugin import OpsTest
 
-DEPLOYMENT_IMAGE_ERROR_MESSAGE_1 = "Velero Deployment is not ready: ImagePullBackOff"
-DEPLOYMENT_IMAGE_ERROR_MESSAGE_2 = "Velero Deployment is not ready: ErrImagePull"
 USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
 VELERO_IMAGE_CONFIG_KEY = "velero-image"
 VELERO_NODE_AGENT_NAME = "node-agent"
