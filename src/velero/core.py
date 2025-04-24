@@ -326,10 +326,7 @@ class Velero:
             )
         except ApiError as ae:
             raise VeleroError(
-                (
-                    f"Failed to create service '{VELERO_METRICS_SERVICE_NAME}'"
-                    f" in namespace '{self._namespace}'"
-                )
+                "Failed to create ClusterIP service for the Velero Deployment"
             ) from ae
 
     def is_installed(self, kube_client: Client, use_node_agent: bool) -> bool:
@@ -405,7 +402,8 @@ class Velero:
             use_node_agent: Whether to use the Velero node agent (DaemonSet).
 
         Raises:
-            VeleroCLIError: If the installation fails.
+            VeleroCLIError: If the CLI installation fails.
+            VeleroError: If metrics service creation fails.
         """
         install_msg = (
             "Installing the Velero with the following settings:\n"
