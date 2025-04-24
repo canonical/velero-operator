@@ -25,6 +25,8 @@ VELERO_BACKUP_LOCATION_NAME = "default"
 VELERO_VOLUME_SNAPSHOT_LOCATION_NAME = "default"
 VELERO_SECRET_KEY = "creds"
 
+VELERO_ALLOWED_SUBCOMMANDS = {"backup", "restore", "schedule"}
+
 VELERO_BACKUP_LOCATION_RESOURCE = create_namespaced_resource(
     "velero.io", "v1", "BackupStorageLocation", "backupstoragelocations"
 )
