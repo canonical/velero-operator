@@ -13,6 +13,7 @@ from helpers import (
     MISSING_RELATION_MESSAGE,
     TIMEOUT,
     UNTRUST_ERROR_MESSAGE,
+    assert_app_status,
     get_model,
 )
 from lightkube.core.exceptions import ApiError
@@ -33,7 +34,6 @@ logger = logging.getLogger(__name__)
 async def test_build_and_deploy(ops_test: OpsTest):
     """Build and deploy the velero-operator."""
     logger.info("Building and deploying velero-operator charm")
-
     charm = await ops_test.build_charm(".")
     model = get_model(ops_test)
 
@@ -43,16 +43,13 @@ async def test_build_and_deploy(ops_test: OpsTest):
         ),
         model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=TIMEOUT),
     )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == UNTRUST_ERROR_MESSAGE
+    assert_app_status(model.applications[APP_NAME], [UNTRUST_ERROR_MESSAGE])
 
 
 @pytest.mark.abort_on_fail
 async def test_trust(ops_test: OpsTest):
     """Trust the velero-operator charm."""
     logger.info("Trusting velero-operator charm")
-
     model = get_model(ops_test)
     await ops_test.juju("trust", APP_NAME, "--scope=cluster")
 
@@ -63,16 +60,13 @@ async def test_trust(ops_test: OpsTest):
             raise_on_blocked=False,
             timeout=TIMEOUT,
         )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
+    assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
 
 
 @pytest.mark.abort_on_fail
 async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
     """Test the config-changed hook for the use-node-agent config option."""
     logger.info("Testing use-node-agent config option")
-
     model = get_model(ops_test)
     app = model.applications[APP_NAME]
 
@@ -81,9 +75,7 @@ async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
         app.set_config({USE_NODE_AGENT_CONFIG_KEY: "false"}),
         model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
     )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
+    assert_app_status(app, [MISSING_RELATION_MESSAGE])
 
     try:
         lightkube_client.get(DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name)
@@ -97,9 +89,7 @@ async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
         app.set_config({USE_NODE_AGENT_CONFIG_KEY: "true"}),
         model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
     )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
+    assert_app_status(app, [MISSING_RELATION_MESSAGE])
 
     try:
         lightkube_client.get(DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name)
@@ -113,7 +103,6 @@ async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
 async def test_config_velero_image(ops_test: OpsTest):
     """Test the config-changed hook for the velero-image config option."""
     logger.info("Testing velero-image config option")
-
     model = get_model(ops_test)
     app = model.applications[APP_NAME]
     new_image = "velero-test"
@@ -122,28 +111,21 @@ async def test_config_velero_image(ops_test: OpsTest):
     await app.set_config({VELERO_IMAGE_CONFIG_KEY: new_image})
     async with ops_test.fast_forward(fast_interval="60s"):
         await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked")
-
-    for unit in model.applications[APP_NAME].units:
-        assert (
-            unit.workload_status_message == DEPLOYMENT_IMAGE_ERROR_MESSAGE_1
-            or unit.workload_status_message == DEPLOYMENT_IMAGE_ERROR_MESSAGE_2
-        )
+    assert_app_status(app, [DEPLOYMENT_IMAGE_ERROR_MESSAGE_1, DEPLOYMENT_IMAGE_ERROR_MESSAGE_2])
 
     logger.info("Resetting velero-image config to default")
     await app.reset_config([VELERO_IMAGE_CONFIG_KEY])
     async with ops_test.fast_forward(fast_interval="60s"):
         await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked")
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
+    assert_app_status(app, [MISSING_RELATION_MESSAGE])
 
 
 @pytest.mark.abort_on_fail
 async def test_remove(ops_test: OpsTest, lightkube_client):
     """Remove the applications and assert that all resources are deleted."""
+    logger.info("Removing velero-operator charm and checking resources")
     model = get_model(ops_test)
 
-    logger.info("Removing velero-operator charm")
     await asyncio.gather(
         model.remove_application(APP_NAME),
         model.block_until(

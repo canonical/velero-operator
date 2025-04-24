@@ -11,6 +11,7 @@ from helpers import (
     APP_NAME,
     MISSING_RELATION_MESSAGE,
     TIMEOUT,
+    assert_app_status,
     get_model,
 )
 from pytest_operator.plugin import OpsTest
@@ -28,7 +29,6 @@ METRICS_PATH = "/metrics"
 async def test_build_and_deploy(ops_test: OpsTest):
     """Build and deploy the velero-operator with grafana-agent-k8s."""
     logger.info("Building and deploying velero-operator charm with grafana-agent-k8s")
-
     charm = await ops_test.build_charm(".")
     model = get_model(ops_test)
 
@@ -39,16 +39,13 @@ async def test_build_and_deploy(ops_test: OpsTest):
         model.deploy(GRAFANA_AGENT_APP, channel=GRAFANA_AGENT_CHANNEL, trust=True),
         model.wait_for_idle(apps=[APP_NAME, GRAFANA_AGENT_APP], status="blocked", timeout=TIMEOUT),
     )
-
-    for unit in model.applications[APP_NAME].units:
-        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
+    assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
 
 
 @pytest.mark.abort_on_fail
 async def test_relate_grafana_agent(ops_test: OpsTest):
     """Relate the velero-operator with grafana-agent-k8s."""
     logger.info("Relating velero-operator with grafana-agent-k8s using %s", METRICS_ENDPOINT)
-
     model = get_model(ops_test)
 
     await model.integrate(
@@ -67,7 +64,6 @@ async def test_relate_grafana_agent(ops_test: OpsTest):
 async def test_metrics_enpoint(ops_test: OpsTest):
     """Test metrics_endpoints are defined in relation data bag and their accessibility."""
     logger.info("Testing metrics endpoints")
-
     model = get_model(ops_test)
     app = model.applications[APP_NAME]
     await assert_metrics_endpoint(app, metrics_port=METRICS_PORT, metrics_path=METRICS_PATH)
@@ -76,6 +72,7 @@ async def test_metrics_enpoint(ops_test: OpsTest):
 @pytest.mark.abort_on_fail
 async def test_remove(ops_test: OpsTest):
     """Remove the velero-operator and s3-integrator charms."""
+    logger.info("Removing velero-operator and grafana-agent-k8s charms")
     model = get_model(ops_test)
 
     await asyncio.gather(
