@@ -325,9 +325,10 @@ class Velero:
                 },
             )
         except ApiError as ae:
-            raise VeleroError(
-                "Failed to create ClusterIP service for the Velero Deployment"
-            ) from ae
+            if ae.status.code != 409:
+                raise VeleroError(
+                    "Failed to create ClusterIP service for the Velero Deployment"
+                ) from ae
 
     def is_installed(self, kube_client: Client, use_node_agent: bool) -> bool:
         """Check if Velero is installed in the Kubernetes cluster.

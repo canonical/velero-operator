@@ -18,7 +18,7 @@ from helpers import (
 from lightkube.core.exceptions import ApiError
 from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
-from lightkube.resources.core_v1 import Secret, ServiceAccount
+from lightkube.resources.core_v1 import Secret, Service, ServiceAccount
 from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
 from pytest_operator.plugin import OpsTest
 
@@ -79,8 +79,11 @@ async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
     logger.info("Setting use-node-agent to false")
     await asyncio.gather(
         app.set_config({USE_NODE_AGENT_CONFIG_KEY: "false"}),
-        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT),
+        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
     )
+
+    for unit in model.applications[APP_NAME].units:
+        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
 
     try:
         lightkube_client.get(DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name)
@@ -92,8 +95,11 @@ async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
     logger.info("Setting use-node-agent to true")
     await asyncio.gather(
         app.set_config({USE_NODE_AGENT_CONFIG_KEY: "true"}),
-        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT),
+        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
     )
+
+    for unit in model.applications[APP_NAME].units:
+        assert unit.workload_status_message == MISSING_RELATION_MESSAGE
 
     try:
         lightkube_client.get(DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name)
@@ -151,6 +157,7 @@ async def test_remove(ops_test: OpsTest, lightkube_client):
         Deployment,
         DaemonSet,
         ServiceAccount,
+        Service,
         ClusterRoleBinding,
         Secret,
         CustomResourceDefinition,

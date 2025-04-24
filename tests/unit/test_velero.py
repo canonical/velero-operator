@@ -125,7 +125,7 @@ def test_install_run_failed(caplog, mock_run_failing, velero, mock_lightkube_cli
     assert "stderr: stderr" in caplog.text
 
 
-def test_install_api_error(caplog, mock_run, velero, mock_lightkube_client):
+def test_install_api_error(mock_run, velero, mock_lightkube_client):
     """Check velero.install raises a VeleroError when the API call fails."""
     mock_lightkube_client.create.side_effect = ApiError(
         request=MagicMock(),
@@ -133,6 +133,16 @@ def test_install_api_error(caplog, mock_run, velero, mock_lightkube_client):
     )
     with pytest.raises(VeleroError):
         velero.install(mock_lightkube_client, VELERO_IMAGE, False)
+
+
+def test_install_409_error(mock_run, velero, mock_lightkube_client):
+    """Check velero.install does not raise when the API call fails with 409 error."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 409, "message": "already exists"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.create.side_effect = api_error
+
+    assert velero.install(mock_lightkube_client, VELERO_IMAGE, False) is None
 
 
 def test_check_velero_deployment_success(mock_lightkube_client):
