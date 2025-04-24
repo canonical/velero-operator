@@ -21,6 +21,7 @@ from config import CharmConfig
 from constants import (
     VELERO_ALLOWED_SUBCOMMANDS,
     VELERO_BINARY_PATH,
+    VELERO_METRICS_PATH,
     VELERO_METRICS_PORT,
     VELERO_METRICS_SERVICE_NAME,
     StorageRelation,
@@ -63,13 +64,14 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             relation_name="metrics-endpoint",
             jobs=[
                 {
+                    "metrics_path": VELERO_METRICS_PATH,
                     "static_configs": [
                         {
                             "targets": [
                                 f"{VELERO_METRICS_SERVICE_NAME}.{self.model.name}.svc:{VELERO_METRICS_PORT}"
                             ]
                         }
-                    ]
+                    ],
                 }
             ],
         )
