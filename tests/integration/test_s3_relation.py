@@ -56,12 +56,11 @@ async def test_configure_s3_integrator(
 ):
     """Configure the integrator charm with the credentials and configs."""
     model = get_model(ops_test)
+    app = model.applications[S3_INTEGRATOR]
 
     logger.info("Setting credentials for %s", S3_INTEGRATOR)
-    await model.applications[S3_INTEGRATOR].set_config(s3_cloud_configs)
-    action = await model.units[f"{S3_INTEGRATOR}/0"].run_action(
-        "sync-s3-credentials", **s3_cloud_credentials
-    )
+    await app.set_config(s3_cloud_configs)
+    action = await app.units[0].run_action("sync-s3-credentials", **s3_cloud_credentials)
     result = await action.wait()
     assert result.results.get("return-code") == 0
 

@@ -628,7 +628,7 @@ class Velero:
             str: The output of the command.
 
         Raises:
-            VeleroError: If the command fails.
+            VeleroCLIError: If the command fails.
             ValueError: If the command is empty.
         """
         if not command:
@@ -648,7 +648,7 @@ class Velero:
             logging.error("stdout: %s", cpe.stdout)
             logging.error("stderr: %s", cpe.stderr)
 
-            raise VeleroError(error_msg) from cpe
+            raise VeleroCLIError(error_msg) from cpe
 
     # CHECKERS
 
