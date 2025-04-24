@@ -455,7 +455,6 @@ def test_on_run_action_success(
     """Test the run_cli_action handler."""
     # Arrange
     command = "backup create my-backup"
-    expected_result = "success"
     with (
         patch.object(
             VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
@@ -463,7 +462,7 @@ def test_on_run_action_success(
     ):
         mock_storage_rel.return_value = StorageRelation.S3
         mock_velero.is_storage_configured.return_value = True
-        mock_velero.run_cli_command.return_value = expected_result
+        mock_velero.run_cli_command.return_value = "test output"
         ctx = testing.Context(VeleroOperatorCharm)
 
         # Act
@@ -471,7 +470,7 @@ def test_on_run_action_success(
 
         # Assert
         mock_velero.run_cli_command.assert_called_once()
-        assert ctx.action_results.get("result") == expected_result
+        assert ctx.action_results.get("status") == "success"
 
 
 @pytest.mark.parametrize(
