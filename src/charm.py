@@ -5,6 +5,7 @@
 """The Velero Charm."""
 
 import logging
+import shlex
 from functools import cached_property
 from typing import Optional, Union
 
@@ -16,7 +17,7 @@ from lightkube.resources.rbac_authorization_v1 import ClusterRole
 from pydantic import ValidationError
 
 from config import CharmConfig
-from constants import VELERO_BINARY_PATH, StorageRelation
+from constants import VELERO_ALLOWED_SUBCOMMANDS, VELERO_BINARY_PATH, StorageRelation
 from velero import (
     S3StorageProvider,
     StorageProviderError,
@@ -58,6 +59,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         for relation in [r.value for r in StorageRelation]:
             self.framework.observe(self.on[relation].relation_changed, self._reconcile)
             self.framework.observe(self.on[relation].relation_broken, self._reconcile)
+
+        self.framework.observe(self.on.run_cli_action, self._on_run_action)
 
     # PROPERTIES
 
@@ -130,6 +133,36 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             self._log_and_set_status(
                 ops.BlockedStatus("Failed to access K8s API. See juju debug-log for details.")
             )
+
+    def _on_run_action(self, event: ops.ActionEvent) -> None:
+        """Handle the run action event."""
+        command = event.params["command"]
+
+        if not self.storage_relation or not self.velero.is_storage_configured(
+            self.lightkube_client
+        ):
+            event.fail("Velero Storage Provider is not configured")
+            return
+
+        if not command.strip():
+            event.fail("Command should not be empty")
+            return
+
+        try:
+            args = shlex.split(command)
+            if args[0] not in VELERO_ALLOWED_SUBCOMMANDS:
+                event.fail(f"Invalid command: '{args[0]}', allowed: {VELERO_ALLOWED_SUBCOMMANDS}")
+                return
+
+            result = self.velero.run_cli_command(args)
+            event.log(f"Command output:\n{result}")
+            event.set_results({"status": "success"})
+        except VeleroError as ve:
+            event.fail(f"Failed to run command: {ve}")
+            return
+        except ValueError as ve:
+            event.fail(f"Invalid command: {ve}")
+            return
 
     def _configure_storage_locations(self) -> None:
         """Configure the Velero storage locations.

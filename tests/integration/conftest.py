@@ -12,11 +12,16 @@ import uuid
 import boto3
 import botocore.exceptions
 import pytest
+from lightkube import ApiError, Client, codecs
+from lightkube.models.meta_v1 import ObjectMeta
+from lightkube.resources.core_v1 import Namespace
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 logger = logging.getLogger(__name__)
 MICROCEPH_BUCKET = "testbucket"
 MICROCEPH_RGW_PORT = 7480
+K8S_TEST_NAMESPACE = "velero-integration-tests"
+K8S_TEST_RESOURCES_YAML_PATH = "./tests/integration/resources/test_resources.yaml"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -149,3 +154,48 @@ def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
         config["region"] = os.environ.get("AWS_REGION", "us-east-2")
 
     return config
+
+
+@pytest.fixture(scope="session")
+def lightkube_client() -> Client:
+    """Return a lightkube client to use in this session."""
+    client = Client(field_manager="integration-tests")
+    return client
+
+
+@pytest.fixture(scope="module")
+def k8s_test_resources(lightkube_client: Client):
+    """Set up the test K8s resources."""
+    namespace = Namespace(metadata=ObjectMeta(name=K8S_TEST_NAMESPACE))
+    test_resources = {
+        "namespace": namespace,
+        "resources": [],
+    }
+
+    try:
+        lightkube_client.create(namespace)
+        logger.info("Created test K8s namespace: %s", K8S_TEST_NAMESPACE)
+    except ApiError as e:
+        if e.status.code == 409:
+            logger.warning("Namespace %s already exists, skipping creation", K8S_TEST_NAMESPACE)
+        else:
+            raise
+
+    with open(K8S_TEST_RESOURCES_YAML_PATH) as f:
+        for obj in codecs.load_all_yaml(f):
+            if obj.metadata and not obj.metadata.namespace:
+                obj.metadata.namespace = K8S_TEST_NAMESPACE
+            try:
+                lightkube_client.create(obj)
+                logger.info("Created %s in namespace %s", obj.kind, K8S_TEST_NAMESPACE)
+            except ApiError as e:
+                if e.status.code == 409:
+                    logger.warning("Resource %s already exists, skipping creation", obj.kind)
+                else:
+                    raise
+            test_resources["resources"].append(obj)
+
+    yield test_resources
+
+    lightkube_client.delete(Namespace, K8S_TEST_NAMESPACE)
+    logger.info("Deleted test K8s namespace: %s", K8S_TEST_NAMESPACE)

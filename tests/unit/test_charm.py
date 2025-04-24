@@ -448,6 +448,86 @@ def test_storage_relation_broken_error(mock_velero, mock_lightkube_client):
     )
 
 
+def test_on_run_action_success(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test the run_cli_action handler."""
+    # Arrange
+    command = "backup create my-backup"
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.run_cli_command.return_value = "test output"
+        ctx = testing.Context(VeleroOperatorCharm)
+
+        # Act
+        ctx.run(ctx.on.action("run-cli", params={"command": command}), testing.State())
+
+        # Assert
+        mock_velero.run_cli_command.assert_called_once()
+        assert ctx.action_results.get("status") == "success"
+
+
+@pytest.mark.parametrize(
+    "command,rel_configured,velero_error",
+    [
+        # Invalid command
+        (
+            "invalid-command",
+            True,
+            None,
+        ),
+        # Empty command
+        (
+            "",
+            True,
+            None,
+        ),
+        # Storage not configured
+        ("backup create my-backup", False, None),
+        # Command raises VeleroError
+        (
+            "backup create my-backup",
+            True,
+            VeleroError("simulated error"),
+        ),
+        # Command raises ValueError
+        (
+            "backup create my-backup",
+            True,
+            ValueError("simulated error"),
+        ),
+    ],
+)
+def test_on_run_action_failed(
+    command,
+    rel_configured,
+    velero_error,
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test the run_cli_action handler when it fails."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3 if rel_configured else None
+        mock_velero.is_storage_configured.return_value = rel_configured
+        mock_velero.run_cli_command.side_effect = velero_error
+        ctx = testing.Context(VeleroOperatorCharm)
+
+        # Act and Assert
+        with pytest.raises(testing.ActionFailed):
+            ctx.run(ctx.on.action("run-cli", params={"command": command}), testing.State())
+
+
 @pytest.mark.parametrize(
     "use_node_agent,relation",
     [

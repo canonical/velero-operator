@@ -46,6 +46,14 @@ def mock_run():
         yield mock_run
 
 
+@pytest.fixture(autouse=True)
+def mock_check_output():
+    """Mock subprocess.check_output to return a string."""
+    with patch("subprocess.check_output") as mock_check_output:
+        mock_check_output.return_value = "stdout"
+        yield mock_check_output
+
+
 @pytest.fixture()
 def mock_run_failing(mock_run):
     """Mock subprocess.check_run to raise a CalledProcessError."""
@@ -53,6 +61,14 @@ def mock_run_failing(mock_run):
     mock_run.return_value = None
     mock_run.side_effect = cpe
     yield mock_run
+
+
+@pytest.fixture()
+def mock_check_output_failing(mock_check_output):
+    """Mock subprocess.check_output to raise a CalledProcessError."""
+    cpe = CalledProcessError(cmd="", returncode=1, stderr="stderr", output="stdout")
+    mock_check_output.side_effect = cpe
+    yield mock_check_output
 
 
 @pytest.fixture()
@@ -131,7 +147,7 @@ def test_check_velero_deployment_unavailable(mock_lightkube_client):
     assert str(ve.value) == "Velero Deployment is not ready: not ready"
 
 
-def test_check_velero_deployment_unavailable_no_pods(mock_lightkube_client):
+def test_check_velero_deployment_unavailable_no_pod_status(mock_lightkube_client):
     """Check check_velero_deployment raises a VeleroError when there are no pods."""
     mock_deployment = MagicMock()
     mock_deployment.status.conditions = [
@@ -140,7 +156,7 @@ def test_check_velero_deployment_unavailable_no_pods(mock_lightkube_client):
     mock_lightkube_client.get.return_value = mock_deployment
 
     pod = MagicMock()
-    pod.status.containerStatuses = []
+    pod.status = None
     mock_lightkube_client.list.return_value = [pod]
 
     with pytest.raises(VeleroError) as ve:
@@ -180,6 +196,7 @@ def test_check_velero_deployment_unavailable_with_waiting_pod(mock_lightkube_cli
     pod_status_2 = MagicMock(ready=False, state=waiting_state)
     pod = MagicMock()
     pod.status.containerStatuses = [pod_status_1, pod_status_2]
+    pod.status.initContainerStatuses = []
     mock_lightkube_client.list.return_value = [pod]
 
     with pytest.raises(VeleroError) as ve:
@@ -198,7 +215,8 @@ def test_check_velero_deployment_unavailable_with_terminated_pod(mock_lightkube_
     terminated_state = MagicMock(waiting=None, terminated=MagicMock(reason="Pod has terminated"))
     pod_status = MagicMock(ready=False, state=terminated_state)
     pod = MagicMock()
-    pod.status.containerStatuses = [pod_status]
+    pod.status.containerStatuses = []
+    pod.status.initContainerStatuses = [pod_status]
     mock_lightkube_client.list.return_value = [pod]
 
     with pytest.raises(VeleroError) as ve:
@@ -745,6 +763,37 @@ def test_add_volume_snapshot_location_failed(caplog, mock_run_failing, velero):
     assert (
         "'velero snapshot-location create' command returned non-zero exit code: 1." in caplog.text
     )
+    assert "stdout: stdout" in caplog.text
+    assert "stderr: stderr" in caplog.text
+
+
+def test_run_cli_command_success(mock_check_output, velero):
+    """Check run_cli_command executes the command successfully and returns output."""
+    command = ["backup", "create", "test-backup"]
+    result = velero.run_cli_command(command)
+
+    expected_call_args = [VELERO_BINARY] + command + [f"--namespace={NAMESPACE}"]
+    mock_check_output.assert_called_once_with(expected_call_args, text=True)
+    assert result == "stdout"
+
+
+def test_run_cli_command_empty_input(velero):
+    """Check run_cli_command raises a VeleroError when the command is empty."""
+    command = []
+
+    with pytest.raises(ValueError):
+        velero.run_cli_command(command)
+
+
+def test_run_cli_command_failed(caplog, mock_check_output_failing, velero):
+    """Check run_cli_command raises a VeleroError when the subprocess call fails."""
+    command = ["backup", "create", "test-backup"]
+
+    with pytest.raises(VeleroError):
+        velero.run_cli_command(command)
+    expected_call_args = [VELERO_BINARY] + command + [f"--namespace={NAMESPACE}"]
+    mock_check_output_failing.assert_called_once_with(expected_call_args, text=True)
+    assert "'velero backup create test-backup' returned non-zero exit code: 1." in caplog.text
     assert "stdout: stdout" in caplog.text
     assert "stderr: stderr" in caplog.text
 
