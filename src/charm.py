@@ -155,7 +155,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 return
 
             result = self.velero.run_cli_command(args)
-            event.set_results({"result": result})
+            event.log(f"Command output:\n{result}")
+            event.set_results({"status": "success"})
         except VeleroError as ve:
             event.fail(f"Failed to run command: {ve}")
             return
