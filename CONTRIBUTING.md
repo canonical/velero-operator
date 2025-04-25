@@ -51,12 +51,11 @@ Before you can begin, you will need to:
 
 7. **Documentation**: Any documentation changes should be included as part of your PR or as a separate PR linked to your original PR.
 
-
 ### Hard Requirements
 
-- **Testing and Code Coverage**: Changes must be accompanied by appropriate unit tests and meet the project's code coverage requirements. Functional and integration tests should be added when applicable to ensure the stability of the codebase.
+* **Testing and Code Coverage**: Changes must be accompanied by appropriate unit tests and meet the project's code coverage requirements. Functional and integration tests should be added when applicable to ensure the stability of the codebase.
 
-- **Sign Your Commits**: Be sure to [sign your commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits), refer to the [Prerequisites](#prerequisites) section.
+* **Sign Your Commits**: Be sure to [sign your commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits), refer to the [Prerequisites](#prerequisites) section.
 
 ## Code of Conduct
 
@@ -109,6 +108,7 @@ CI=true tox -vve integration -- --model velero-testing
 You can also run the integration tests and point them to an existing S3 to be used. This can also be the RadosGW created with `CI=true`.
 
 You can run the integration tests and point them to an existing RadosGW endpoint by setting the following environment variables, before running the integration tests:
+
 ```bash
 export AWS_ENDPOINT="http://$(hostname):7480"
 export AWS_REGION=""
@@ -126,15 +126,8 @@ export AWS_ACCESS_KEY=$(sudo microceph.radosgw-admin user info --uid test \
 >
 > **Note**: `AWS_REGION` is optional, unless you are using local S3
 
-Then you can run the integration tests with
+Then you can run the integration tests with:
+
 ```bash
 tox -vve integration -- --model velero-testing
-```
-
-#### 4. Run Integration Tests
-
-Once your environment is ready:
-
-```bash
-tox -vve integration -- --model testing
 ```
