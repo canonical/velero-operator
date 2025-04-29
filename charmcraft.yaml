@@ -12,13 +12,15 @@ description: |
   This charm simplifies the deployment and configuration of Velero, integrating seamlessly with cloud storage providers for secure and scalable disaster recovery.
 
 links:
+  documentation: https://discourse.charmhub.io/t/velero-operator-charm-documentation/17482
   issues:
   - https://github.com/canonical/velero-operator/issues
   source:
   - https://github.com/canonical/velero-operator
   website:
-  - https://github.com/canonical/velero-operator
+  - https://charmhub.io/velero-operator
   - https://velero.io
+  - https://github.com/canonical/velero-operator
 
 platforms:
   ubuntu@24.04:amd64:
