@@ -219,7 +219,10 @@ class Velero:
         """
         try:
             config_flags = ",".join(
-                [f"{key}={value}" for key, value in storage_provider.config_flags.items()]
+                [
+                    f"{key}={value}"
+                    for key, value in storage_provider.backup_location_config.items()
+                ]
             )
             config = ["--config", config_flags] if config_flags else []
             prefix = ["--prefix", storage_provider.path] if storage_provider.path else []
@@ -266,8 +269,12 @@ class Velero:
         """
         try:
             config_flags = ",".join(
-                [f"{key}={value}" for key, value in storage_provider.config_flags.items()]
+                [
+                    f"{key}={value}"
+                    for key, value in storage_provider.volume_snapshot_location_config.items()
+                ]
             )
+            config = ["--config", config_flags] if config_flags else []
             subprocess.run(
                 [
                     self._velero_binary_path,
@@ -276,8 +283,7 @@ class Velero:
                     VELERO_VOLUME_SNAPSHOT_LOCATION_NAME,
                     "--provider",
                     storage_provider.plugin,
-                    "--config",
-                    config_flags,
+                    *config,
                     f"--credential={VELERO_SECRET_NAME}={VELERO_SECRET_KEY}",
                     f"--namespace={self._namespace}",
                     "--labels",

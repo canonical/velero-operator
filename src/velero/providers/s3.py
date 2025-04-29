@@ -63,13 +63,21 @@ class S3StorageProvider(VeleroStorageProvider):
         return self._encode_secret(secret)
 
     @property
-    def config_flags(self) -> Dict[str, str]:
-        """Return the configuration flags for S3 storage provider."""
+    def backup_location_config(self) -> Dict[str, str]:
+        """Return the configuration flags for S3 backup location."""
         flags = {}
         if self._config.endpoint is not None:
-            flags["s3Url"] = f"{self._config.endpoint}"
+            flags["s3Url"] = self._config.endpoint
         if self._config.region is not None:
-            flags["region"] = f"{self._config.region}"
+            flags["region"] = self._config.region
         if self._config.s3_uri_style == S3UriStyle.PATH:
             flags["s3ForcePathStyle"] = "true"
+        return flags
+
+    @property
+    def volume_snapshot_location_config(self) -> Dict[str, str]:
+        """Return the configuration flags for S3 volume snapshot location."""
+        flags = {}
+        if self._config.region is not None:
+            flags["region"] = self._config.region
         return flags
