@@ -163,21 +163,9 @@ async def test_remove(ops_test: OpsTest, lightkube_client):
     model = get_model(ops_test)
 
     await asyncio.gather(
-        model.remove_application(APP_NAME),
-        model.remove_application(S3_INTEGRATOR),
-        model.remove_application(AZURE_INTEGRATOR),
-        model.block_until(
-            lambda: model.applications[APP_NAME].status == "unknown",
-            timeout=TIMEOUT,
-        ),
-        model.block_until(
-            lambda: model.applications[S3_INTEGRATOR].status == "unknown",
-            timeout=TIMEOUT,
-        ),
-        model.block_until(
-            lambda: model.applications[AZURE_INTEGRATOR].status == "unknown",
-            timeout=TIMEOUT,
-        ),
+        model.remove_application(APP_NAME, block_until_done=True),
+        model.remove_application(S3_INTEGRATOR, block_until_done=True),
+        model.remove_application(AZURE_INTEGRATOR, block_until_done=True),
     )
 
     logger.info("Checking that all resources are deleted")

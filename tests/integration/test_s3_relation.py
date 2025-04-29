@@ -178,14 +178,6 @@ async def test_remove(ops_test: OpsTest):
     model = get_model(ops_test)
 
     await asyncio.gather(
-        model.remove_application(APP_NAME),
-        model.remove_application(S3_INTEGRATOR),
-        model.block_until(
-            lambda: model.applications[APP_NAME].status == "unknown",
-            timeout=TIMEOUT,
-        ),
-        model.block_until(
-            lambda: model.applications[S3_INTEGRATOR].status == "unknown",
-            timeout=TIMEOUT,
-        ),
+        model.remove_application(APP_NAME, block_until_done=True),
+        model.remove_application(S3_INTEGRATOR, block_until_done=True),
     )

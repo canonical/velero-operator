@@ -76,7 +76,7 @@ async def test_configure_azure_integrator(
 
 @pytest.mark.abort_on_fail
 async def test_relate_azure_integrator(ops_test: OpsTest):
-    """Test the relation between the velero-operator charm and the s3-integrator charm."""
+    """Test the relation between the velero-operator charm and the azure-integrator charm."""
     logger.info("Relating velero-operator to %s", AZURE_INTEGRATOR)
     model = get_model(ops_test)
 
@@ -160,7 +160,7 @@ async def test_azure_restore(ops_test: OpsTest, k8s_test_resources, lightkube_cl
 
 @pytest.mark.abort_on_fail
 async def test_unrelate_azure_integrator(ops_test: OpsTest):
-    """Test the unrelation between the velero-operator charm and the s3-integrator charm."""
+    """Test the unrelation between the velero-operator charm and the azure-integrator charm."""
     logger.info("Unrelating velero-operator from %s", AZURE_INTEGRATOR)
     model = get_model(ops_test)
 
@@ -177,20 +177,12 @@ async def test_unrelate_azure_integrator(ops_test: OpsTest):
 
 @pytest.mark.abort_on_fail
 async def test_remove(ops_test: OpsTest):
-    """Remove the velero-operator and s3-integrator charms."""
-    logger.info("Removing velero-operator and s3-integrator charms")
+    """Remove the velero-operator and azure-integrator charms."""
+    logger.info("Removing velero-operator and azure-integrator charms")
     model = get_model(ops_test)
 
     await asyncio.gather(
-        model.remove_application(APP_NAME),
-        model.remove_application(AZURE_INTEGRATOR),
+        model.remove_application(APP_NAME, block_until_done=True),
+        model.remove_application(AZURE_INTEGRATOR, block_until_done=True),
         model.remove_secret(AZURE_SECRET_NAME),
-        model.block_until(
-            lambda: model.applications[APP_NAME].status == "unknown",
-            timeout=TIMEOUT,
-        ),
-        model.block_until(
-            lambda: model.applications[AZURE_INTEGRATOR].status == "unknown",
-            timeout=TIMEOUT,
-        ),
     )
