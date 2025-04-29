@@ -51,12 +51,11 @@ Before you can begin, you will need to:
 
 7. **Documentation**: Any documentation changes should be included as part of your PR or as a separate PR linked to your original PR.
 
-
 ### Hard Requirements
 
-- **Testing and Code Coverage**: Changes must be accompanied by appropriate unit tests and meet the project's code coverage requirements. Functional and integration tests should be added when applicable to ensure the stability of the codebase.
+* **Testing and Code Coverage**: Changes must be accompanied by appropriate unit tests and meet the project's code coverage requirements. Functional and integration tests should be added when applicable to ensure the stability of the codebase.
 
-- **Sign Your Commits**: Be sure to [sign your commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits), refer to the [Prerequisites](#prerequisites) section.
+* **Sign Your Commits**: Be sure to [sign your commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits), refer to the [Prerequisites](#prerequisites) section.
 
 ## Code of Conduct
 
@@ -84,35 +83,51 @@ Integration tests require a working Kubernetes cluster (via `microk8s`) and a Ju
 * If you're running in a CI environment (`CI=true`), a local RadosGW (via `microceph`) is set up automatically.
 * When testing locally, you **must** provide your own credentials or reuse those from `microceph`.
 
-#### 1. Required Environment Variables
+#### 1. Setup RadosGW
 
-Set the following env vars **before** running the integration tests:
-
-```bash
-export AWS_ACCESS_KEY=your_access_key_id
-export AWS_SECRET_KEY=your_secret_access_key
-export AWS_BUCKET=your_s3_bucket_name
-export AWS_REGION=your_aws_region  # Optional unless using AWS
-export AWS_ENDPOINT=http://localhost:7480  # Optional, required for local S3 (e.g. microceph)
-export AWS_S3_URI_STYLE=path  # Optional, required for local S3
-```
-
-#### 2. CI Behavior
+The integration tests can install microceph and RadosGW, and then run the tests. To do so you'll need to run the integration tests with `CI=true`.
 
 When the `CI=true` environment variable is set:
 
-* MicroCeph is installed and bootstrapped automatically
+* MicroCeph will be installed and bootstrapped
 * A local RadosGW instance is created
-* S3 credentials are generated
-* A test bucket is created
-* The integration tests use this local setup
+* S3 credentials are generated for a user `test`
+* A `testbucket` bucket is created
+* The integration tests will use this local setup
 
 > **Note**: You can create your own S3 bucket and credentials if you prefer. Just ensure the `AWS_*` environment variables are set correctly.
-
-#### 4. Run Integration Tests
-
-Once your environment is ready:
+>
+> **Note**: RadosGW will be exposed under `$(hostname):7480`
 
 ```bash
-tox -vve integration -- --model testing
+CI=true tox -vve integration -- --model velero-testing
+```
+
+#### 2. Reuse Local RadosGW
+
+You can also run the integration tests and point them to an existing S3 to be used. This can also be the RadosGW created with `CI=true`.
+
+You can run the integration tests and point them to an existing RadosGW endpoint by setting the following environment variables, before running the integration tests:
+
+```bash
+export AWS_ENDPOINT="http://$(hostname):7480"
+export AWS_REGION=""
+export AWS_S3_URI_STYLE=path
+export AWS_BUCKET=testbucket
+export AWS_SECRET_KEY=$(sudo microceph.radosgw-admin user info --uid test \
+        | jq -r ".keys[0].secret_key")
+export AWS_ACCESS_KEY=$(sudo microceph.radosgw-admin user info --uid test \
+        | jq -r ".keys[0].access_key")
+```
+
+> **Note**: `AWS_REGION` is optional, unless you are using AWS
+>
+> **Note**: `AWS_ENDPOINT` is optional, unless you are using local S3
+>
+> **Note**: `AWS_REGION` is optional, unless you are using local S3
+
+Then you can run the integration tests with:
+
+```bash
+tox -vve integration -- --model velero-testing
 ```

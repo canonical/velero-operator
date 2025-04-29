@@ -13,10 +13,12 @@ from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
 from lightkube.resources.core_v1 import Secret
 from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
+from lightkube.types import PatchType
 
 from constants import (
     VELERO_BACKUP_LOCATION_NAME,
     VELERO_DEPLOYMENT_NAME,
+    VELERO_NODE_AGENT_NAME,
     VELERO_SECRET_KEY,
     VELERO_SECRET_NAME,
     VELERO_VOLUME_SNAPSHOT_LOCATION_NAME,
@@ -44,6 +46,14 @@ def mock_run():
         yield mock_run
 
 
+@pytest.fixture(autouse=True)
+def mock_check_output():
+    """Mock subprocess.check_output to return a string."""
+    with patch("subprocess.check_output") as mock_check_output:
+        mock_check_output.return_value = "stdout"
+        yield mock_check_output
+
+
 @pytest.fixture()
 def mock_run_failing(mock_run):
     """Mock subprocess.check_run to raise a CalledProcessError."""
@@ -51,6 +61,14 @@ def mock_run_failing(mock_run):
     mock_run.return_value = None
     mock_run.side_effect = cpe
     yield mock_run
+
+
+@pytest.fixture()
+def mock_check_output_failing(mock_check_output):
+    """Mock subprocess.check_output to raise a CalledProcessError."""
+    cpe = CalledProcessError(cmd="", returncode=1, stderr="stderr", output="stdout")
+    mock_check_output.side_effect = cpe
+    yield mock_check_output
 
 
 @pytest.fixture()
@@ -85,9 +103,9 @@ def test_velero_correct_crb_name():
     "use_node_agent",
     [True, False],
 )
-def test_install_success(use_node_agent, mock_run, velero):
+def test_install_success(use_node_agent, mock_run, velero, mock_lightkube_client):
     """Check velero.install calls the binary successfully with the expected arguments."""
-    velero.install(VELERO_IMAGE, use_node_agent)
+    velero.install(mock_lightkube_client, VELERO_IMAGE, use_node_agent)
 
     expected_call_args = [VELERO_BINARY, "install"]
     expected_call_args.extend(VELERO_EXPECTED_FLAGS)
@@ -95,15 +113,36 @@ def test_install_success(use_node_agent, mock_run, velero):
     mock_run.assert_called_once_with(
         expected_call_args, check=True, capture_output=True, text=True
     )
+    mock_lightkube_client.create.assert_called_once()
 
 
-def test_install_failed(caplog, mock_run_failing, velero):
+def test_install_run_failed(caplog, mock_run_failing, velero, mock_lightkube_client):
     """Check velero.install raises a VeleroError when the subprocess call fails."""
     with pytest.raises(VeleroError):
-        velero.install(VELERO_IMAGE, False)
+        velero.install(mock_lightkube_client, VELERO_IMAGE, False)
     assert "'velero install' command returned non-zero exit code: 1." in caplog.text
     assert "stdout: stdout" in caplog.text
     assert "stderr: stderr" in caplog.text
+
+
+def test_install_api_error(mock_run, velero, mock_lightkube_client):
+    """Check velero.install raises a VeleroError when the API call fails."""
+    mock_lightkube_client.create.side_effect = ApiError(
+        request=MagicMock(),
+        response=MagicMock(),
+    )
+    with pytest.raises(VeleroError):
+        velero.install(mock_lightkube_client, VELERO_IMAGE, False)
+
+
+def test_install_409_error(mock_run, velero, mock_lightkube_client):
+    """Check velero.install does not raise when the API call fails with 409 error."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 409, "message": "already exists"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.create.side_effect = api_error
+
+    assert velero.install(mock_lightkube_client, VELERO_IMAGE, False) is None
 
 
 def test_check_velero_deployment_success(mock_lightkube_client):
@@ -118,6 +157,7 @@ def test_check_velero_deployment_success(mock_lightkube_client):
 def test_check_velero_deployment_unavailable(mock_lightkube_client):
     """Check check_velero_deployment raises a VeleroError when the deployment is not ready."""
     mock_deployment = MagicMock()
+    mock_deployment.spec.selector.matchLabels = {}
     mock_deployment.status.conditions = [
         MagicMock(type="Available", status="False", message="not ready")
     ]
@@ -125,7 +165,84 @@ def test_check_velero_deployment_unavailable(mock_lightkube_client):
 
     with pytest.raises(VeleroError) as ve:
         Velero.check_velero_deployment(mock_lightkube_client, "velero")
-    assert str(ve.value) == "not ready"
+    assert str(ve.value) == "Velero Deployment is not ready: not ready"
+
+
+def test_check_velero_deployment_unavailable_no_pod_status(mock_lightkube_client):
+    """Check check_velero_deployment raises a VeleroError when there are no pods."""
+    mock_deployment = MagicMock()
+    mock_deployment.status.conditions = [
+        MagicMock(type="Available", status="False", message="not ready")
+    ]
+    mock_lightkube_client.get.return_value = mock_deployment
+
+    pod = MagicMock()
+    pod.status = None
+    mock_lightkube_client.list.return_value = [pod]
+
+    with pytest.raises(VeleroError) as ve:
+        Velero.check_velero_deployment(mock_lightkube_client, "velero")
+    assert str(ve.value) == "Velero Deployment is not ready: not ready"
+
+
+def test_check_velero_deployment_unavailable_ready_pod_status(mock_lightkube_client):
+    """Check check_velero_deployment raises a VeleroError when there are no failed pod statuses."""
+    mock_deployment = MagicMock()
+    mock_deployment.status.conditions = [
+        MagicMock(type="Available", status="False", message="not ready")
+    ]
+    mock_lightkube_client.get.return_value = mock_deployment
+
+    ready_state = MagicMock(ready=MagicMock(message="not ready"), terminated=None, waiting=None)
+    pod_status = MagicMock(ready=False, state=ready_state)
+    pod = MagicMock()
+    pod.status.containerStatuses = [pod_status]
+    mock_lightkube_client.list.return_value = [pod]
+
+    with pytest.raises(VeleroError) as ve:
+        Velero.check_velero_deployment(mock_lightkube_client, "velero")
+    assert str(ve.value) == "Velero Deployment is not ready: not ready"
+
+
+def test_check_velero_deployment_unavailable_with_waiting_pod(mock_lightkube_client):
+    """Check heck_velero_deployment raises a VeleroError with the message of waiting pod."""
+    mock_deployment = MagicMock()
+    mock_deployment.status.conditions = [
+        MagicMock(type="Available", status="False", message="not ready")
+    ]
+    mock_lightkube_client.get.return_value = mock_deployment
+
+    waiting_state = MagicMock(waiting=MagicMock(reason="Image error"), terminated=None)
+    pod_status_1 = MagicMock(ready=True, state=None)
+    pod_status_2 = MagicMock(ready=False, state=waiting_state)
+    pod = MagicMock()
+    pod.status.containerStatuses = [pod_status_1, pod_status_2]
+    pod.status.initContainerStatuses = []
+    mock_lightkube_client.list.return_value = [pod]
+
+    with pytest.raises(VeleroError) as ve:
+        Velero.check_velero_deployment(mock_lightkube_client, "velero")
+    assert str(ve.value) == "Velero Deployment is not ready: Image error"
+
+
+def test_check_velero_deployment_unavailable_with_terminated_pod(mock_lightkube_client):
+    """Check heck_velero_deployment raises a VeleroError with the message of terminated pod."""
+    mock_deployment = MagicMock()
+    mock_deployment.status.conditions = [
+        MagicMock(type="Available", status="False", message="not ready")
+    ]
+    mock_lightkube_client.get.return_value = mock_deployment
+
+    terminated_state = MagicMock(waiting=None, terminated=MagicMock(reason="Pod has terminated"))
+    pod_status = MagicMock(ready=False, state=terminated_state)
+    pod = MagicMock()
+    pod.status.containerStatuses = []
+    pod.status.initContainerStatuses = [pod_status]
+    mock_lightkube_client.list.return_value = [pod]
+
+    with pytest.raises(VeleroError) as ve:
+        Velero.check_velero_deployment(mock_lightkube_client, "velero")
+    assert str(ve.value) == "Velero Deployment is not ready: Pod has terminated"
 
 
 def test_check_velero_deployment_no_status(mock_lightkube_client):
@@ -136,7 +253,7 @@ def test_check_velero_deployment_no_status(mock_lightkube_client):
 
     with pytest.raises(VeleroError) as ve:
         Velero.check_velero_deployment(mock_lightkube_client, "velero")
-    assert str(ve.value) == "Deployment has no status"
+    assert str(ve.value) == "Velero Deployment is not ready: No status"
 
 
 def test_check_velero_deployment_no_conditions(mock_lightkube_client):
@@ -147,18 +264,18 @@ def test_check_velero_deployment_no_conditions(mock_lightkube_client):
 
     with pytest.raises(VeleroError) as ve:
         Velero.check_velero_deployment(mock_lightkube_client, "velero")
-    assert str(ve.value) == "Deployment has no conditions"
+    assert str(ve.value) == "Velero Deployment is not ready: No conditions"
 
 
 def test_check_velero_deployment_no_available_condition(mock_lightkube_client):
     """Check check_velero_deployment raises a VeleroError when there is no Available condition."""
     mock_deployment = MagicMock()
-    mock_deployment.status.conditions = [MagicMock(type="Ready", status="True")]
+    mock_deployment.status.conditions = [MagicMock(type="SomeCondition", status="True")]
     mock_lightkube_client.get.return_value = mock_deployment
 
     with pytest.raises(VeleroError) as ve:
         Velero.check_velero_deployment(mock_lightkube_client, "velero")
-    assert str(ve.value) == "Deployment has no Available condition"
+    assert str(ve.value) == "Velero Deployment is not ready: No Available condition"
 
 
 def test_check_velero_deployment_api_error(mock_lightkube_client):
@@ -192,7 +309,7 @@ def test_check_velero_node_agent_not_ready(mock_lightkube_client):
 
     with pytest.raises(VeleroError) as ve:
         Velero.check_velero_node_agent(mock_lightkube_client, "velero")
-    assert str(ve.value) == "Not all pods are available"
+    assert str(ve.value) == "Velero NodeAgent is not ready: Not all pods are available"
 
 
 def test_check_velero_node_agent_no_status(mock_lightkube_client):
@@ -203,7 +320,7 @@ def test_check_velero_node_agent_no_status(mock_lightkube_client):
 
     with pytest.raises(VeleroError) as ve:
         Velero.check_velero_node_agent(mock_lightkube_client, "velero")
-    assert str(ve.value) == "DaemonSet has no status"
+    assert str(ve.value) == "Velero NodeAgent is not ready: No status"
 
 
 def test_check_velero_node_agent_api_error(mock_lightkube_client):
@@ -235,7 +352,10 @@ def test_check_velero_storage_locations_not_ready(mock_lightkube_client):
 
     with pytest.raises(VeleroError) as ve:
         Velero.check_velero_storage_locations(mock_lightkube_client, "velero")
-    assert str(ve.value) == "BackupStorageLocation is unavailable, check the storage configuration"
+    assert (
+        str(ve.value)
+        == "Velero Storage location is not ready: BackupStorageLocation is unavailable"
+    )
 
 
 def test_check_velero_storage_locations_no_status(mock_lightkube_client):
@@ -246,7 +366,10 @@ def test_check_velero_storage_locations_no_status(mock_lightkube_client):
 
     with pytest.raises(VeleroError) as ve:
         Velero.check_velero_storage_locations(mock_lightkube_client, "velero")
-    assert str(ve.value) == "BackupStorageLocation has no status"
+    assert (
+        str(ve.value)
+        == "Velero Storage location is not ready: BackupStorageLocation has no status"
+    )
 
 
 def test_check_velero_storage_locations_api_error(mock_lightkube_client):
@@ -663,3 +786,197 @@ def test_add_volume_snapshot_location_failed(caplog, mock_run_failing, velero):
     )
     assert "stdout: stdout" in caplog.text
     assert "stderr: stderr" in caplog.text
+
+
+def test_run_cli_command_success(mock_check_output, velero):
+    """Check run_cli_command executes the command successfully and returns output."""
+    command = ["backup", "create", "test-backup"]
+    result = velero.run_cli_command(command)
+
+    expected_call_args = [VELERO_BINARY] + command + [f"--namespace={NAMESPACE}"]
+    mock_check_output.assert_called_once_with(expected_call_args, text=True)
+    assert result == "stdout"
+
+
+def test_run_cli_command_empty_input(velero):
+    """Check run_cli_command raises a VeleroError when the command is empty."""
+    command = []
+
+    with pytest.raises(ValueError):
+        velero.run_cli_command(command)
+
+
+def test_run_cli_command_failed(caplog, mock_check_output_failing, velero):
+    """Check run_cli_command raises a VeleroError when the subprocess call fails."""
+    command = ["backup", "create", "test-backup"]
+
+    with pytest.raises(VeleroError):
+        velero.run_cli_command(command)
+    expected_call_args = [VELERO_BINARY] + command + [f"--namespace={NAMESPACE}"]
+    mock_check_output_failing.assert_called_once_with(expected_call_args, text=True)
+    assert "'velero backup create test-backup' returned non-zero exit code: 1." in caplog.text
+    assert "stdout: stdout" in caplog.text
+    assert "stderr: stderr" in caplog.text
+
+
+def test_update_velero_deployment_image_success(velero, mock_lightkube_client):
+    """Check update_velero_deployment_image runs the patches the expected arguments."""
+    expected_deployment_spec = {
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [
+                        {
+                            "name": VELERO_DEPLOYMENT_NAME,
+                            "image": VELERO_IMAGE,
+                        }
+                    ]
+                }
+            },
+            "strategy": {"type": "Recreate", "rollingUpdate": None},
+        }
+    }
+    velero.update_velero_deployment_image(mock_lightkube_client, VELERO_IMAGE)
+    mock_lightkube_client.patch.assert_any_call(
+        Deployment,
+        VELERO_DEPLOYMENT_NAME,
+        expected_deployment_spec,
+        namespace=NAMESPACE,
+    )
+
+
+def test_update_velero_node_agent_image_success(velero, mock_lightkube_client):
+    """Check update_velero_node_agent_image runs the patches the expected arguments."""
+    expected_node_agent_spec = {
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [
+                        {
+                            "name": VELERO_NODE_AGENT_NAME,
+                            "image": VELERO_IMAGE,
+                        }
+                    ]
+                }
+            },
+            "strategy": {"type": "Recreate", "rollingUpdate": None},
+        }
+    }
+    velero.update_velero_node_agent_image(mock_lightkube_client, VELERO_IMAGE)
+    mock_lightkube_client.patch.assert_any_call(
+        DaemonSet,
+        VELERO_NODE_AGENT_NAME,
+        expected_node_agent_spec,
+        namespace=NAMESPACE,
+    )
+
+
+def test_update_velero_deployment_image_404_error(caplog, velero, mock_lightkube_client):
+    """Check update_velero_deployment_image handles a 404 error gracefully."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 404, "message": "not found"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.patch.side_effect = api_error
+
+    assert velero.update_velero_deployment_image(mock_lightkube_client, VELERO_IMAGE) is None
+
+
+def test_update_velero_node_agent_image_404_error(caplog, velero, mock_lightkube_client):
+    """Check update_velero_node_agent_image handles a 404 error gracefully."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 404, "message": "not found"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.patch.side_effect = api_error
+
+    assert velero.update_velero_node_agent_image(mock_lightkube_client, VELERO_IMAGE) is None
+
+
+def test_update_velero_deployment_image_api_error(caplog, velero, mock_lightkube_client):
+    """Check update_velero_deployment_image raises a VeleroError when the subprocess call fails."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 505, "message": "error"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.patch.side_effect = api_error
+
+    with pytest.raises(VeleroError):
+        velero.update_velero_deployment_image(mock_lightkube_client, VELERO_IMAGE)
+    assert "Failed to update Velero Deployment image" in caplog.text
+
+
+def test_update_velero_node_agent_image_api_error(caplog, velero, mock_lightkube_client):
+    """Check update_velero_node_agent_image raises a VeleroError when the subprocess call fails."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 505, "message": "error"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.patch.side_effect = api_error
+
+    with pytest.raises(VeleroError):
+        velero.update_velero_node_agent_image(mock_lightkube_client, VELERO_IMAGE)
+    assert "Failed to update Velero NodeAgent image" in caplog.text
+
+
+def test_remove_node_agent_success(velero, mock_lightkube_client):
+    """Check remove_node_agent removes the node agent."""
+    assert velero.remove_node_agent(mock_lightkube_client) is None
+    mock_lightkube_client.delete.assert_called_once()
+
+
+def test_remove_node_agent_404_error(caplog, velero, mock_lightkube_client):
+    """Check remove_node_agent handles a 404 error gracefully."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 404, "message": "not found"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.delete.side_effect = api_error
+
+    assert velero.remove_node_agent(mock_lightkube_client) is None
+
+
+def test_remove_node_agent_api_error(velero, mock_lightkube_client):
+    """Check remove_node_agent raises a VeleroError when the API call fails."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 505, "message": "error"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.delete.side_effect = api_error
+
+    with pytest.raises(VeleroError):
+        velero.remove_node_agent(mock_lightkube_client)
+
+
+def test_update_plugin_image_success(velero, mock_lightkube_client):
+    """Check update_plugin_image updates the plugin image."""
+    velero.update_plugin_image(mock_lightkube_client, VELERO_IMAGE)
+
+    mock_lightkube_client.patch.assert_called_once_with(
+        Deployment,
+        VELERO_DEPLOYMENT_NAME,
+        [
+            {
+                "op": "replace",
+                "path": "/spec/template/spec/initContainers/0/image",
+                "value": VELERO_IMAGE,
+            }
+        ],
+        patch_type=PatchType.JSON,
+        namespace=NAMESPACE,
+    )
+
+
+def test_update_plugin_image_404_error(caplog, velero, mock_lightkube_client):
+    """Check update_plugin_image handles a 404 error gracefully."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 404, "message": "not found"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.patch.side_effect = api_error
+
+    assert velero.update_plugin_image(mock_lightkube_client, VELERO_IMAGE) is None
+
+
+def test_update_plugin_image_api_error(velero, mock_lightkube_client):
+    """Check update_plugin_image raises a VeleroError when the API call fails."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 505, "message": "error"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.patch.side_effect = api_error
+
+    with pytest.raises(VeleroError):
+        velero.update_plugin_image(mock_lightkube_client, VELERO_IMAGE)
