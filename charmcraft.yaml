@@ -43,11 +43,26 @@ config:
         The Velero AWS plugin container image to deploy
       default: "velero/velero-plugin-for-aws:v1.10.0"
       type: string
-    velero-azure-plugin-image:
-      description: |
-        The Velero Azure plugin container image to deploy
-      default: "velero/velero-plugin-for-microsoft-azure:v1.11.0"
-      type: string
+
+actions:
+  run-cli:
+    description: >
+      Run Velero CLI commands.
+      Useful for managing Velero backup/restores
+    params:
+      command:
+        description: "the Velero subcommand to run, allowed subcommands are: backup, restore, schedule"
+        type: string
+        examples:
+        - "backup get"
+        - "backup create my-backup --include-namespaces default"
+        - "backup describe my-backup"
+        - "restore get"
+        - "restore create --from-backup my-backup"
+        - "restore describe my-backup"
+    required:
+    - command
+    additionalProperties: false
 
 parts:
   charm:
@@ -74,7 +89,7 @@ requires:
     interface: s3
     limit: 1
     optional: true
-  azure-credentials:
-    interface: azure_storage
-    limit: 1
-    optional: true
+
+provides:
+  metrics-endpoint:
+    interface: prometheus_scrape

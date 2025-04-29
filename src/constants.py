@@ -13,6 +13,10 @@ K8S_CHECK_ATTEMPTS = 15
 K8S_CHECK_DELAY = 2
 K8S_CHECK_OBSERVATIONS = 5
 
+VELERO_METRICS_PORT = 8085
+VELERO_METRICS_SERVICE_NAME = "velero-metrics"
+VELERO_METRICS_PATH = "/metrics"
+
 VELERO_DEPLOYMENT_NAME = "velero"
 VELERO_NODE_AGENT_NAME = "node-agent"
 VELERO_SECRET_NAME = "cloud-credentials"
@@ -21,6 +25,8 @@ VELERO_CLUSTER_ROLE_BINDING_NAME = "velero"
 VELERO_BACKUP_LOCATION_NAME = "default"
 VELERO_VOLUME_SNAPSHOT_LOCATION_NAME = "default"
 VELERO_SECRET_KEY = "creds"
+
+VELERO_ALLOWED_SUBCOMMANDS = {"backup", "restore", "schedule"}
 
 VELERO_BACKUP_LOCATION_RESOURCE = create_namespaced_resource(
     "velero.io", "v1", "BackupStorageLocation", "backupstoragelocations"
