@@ -240,12 +240,9 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
         relations = "|".join([r.value for r in StorageRelation])
         if self.has_many_storage_relations:
-            self._log_and_set_status(
-                ops.BlockedStatus(
-                    f"Only one Storage Provider should be related at the time: [{relations}]"
-                )
+            raise CharmError(
+                f"Only one Storage Provider should be related at the time: [{relations}]"
             )
-            return
 
         if not self.storage_relation:
             raise CharmError(f"Missing relation: [{relations}]")
@@ -267,7 +264,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             self.velero.update_plugin_image(
                 self.lightkube_client, self.config.velero_aws_plugin_image
             )
-        if self.storage_relation == StorageRelation.AZURE:
+        elif self.storage_relation == StorageRelation.AZURE:
             self.velero.update_plugin_image(
                 self.lightkube_client, self.config.velero_azure_plugin_image
             )

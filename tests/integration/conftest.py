@@ -8,7 +8,6 @@ import os
 import socket
 import subprocess
 import uuid
-from typing import Optional
 
 import boto3
 import botocore.exceptions
@@ -171,7 +170,7 @@ def azure_connection_info() -> AzureConnectionInfo:
     missing_or_empty = [var for var in required_env_vars if not os.environ.get(var)]
     if missing_or_empty:
         raise RuntimeError(
-            f"Missing or empty required Azure environment variables: {", ".join(missing_or_empty)}",
+            f"Missing or empty required Azure environment variables: {", ".join(missing_or_empty)}"
         )
 
     return AzureConnectionInfo(
@@ -202,6 +201,8 @@ def azure_cloud_configs(
         "storage-account": azure_connection_info.storage_account,
     }
 
+
+@pytest.fixture(scope="session")
 def lightkube_client() -> Client:
     """Return a lightkube client to use in this session."""
     client = Client(field_manager="integration-tests")
