@@ -31,6 +31,13 @@ class S3ConnectionInfo:
     bucket: str
 
 
+@dataclasses.dataclass(frozen=True)
+class AzureConnectionInfo:
+    secret_key: str
+    storage_account: str
+    container: str
+
+
 def is_ci() -> bool:
     """Detect whether we're running in a CI environment."""
     return os.environ.get("CI") == "true"
@@ -154,6 +161,45 @@ def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
         config["region"] = os.environ.get("AWS_REGION", "us-east-2")
 
     return config
+
+
+@pytest.fixture(scope="session")
+def azure_connection_info() -> AzureConnectionInfo:
+    """Return Azure connection info based on environment."""
+    required_env_vars = ["AZURE_SECRET_KEY", "AZURE_STORAGE_ACCOUNT", "AZURE_CONTAINER"]
+    missing_or_empty = [var for var in required_env_vars if not os.environ.get(var)]
+    if missing_or_empty:
+        raise RuntimeError(
+            f"Missing or empty required Azure environment variables: {", ".join(missing_or_empty)}"
+        )
+
+    return AzureConnectionInfo(
+        secret_key=os.environ["AZURE_SECRET_KEY"],
+        storage_account=os.environ["AZURE_STORAGE_ACCOUNT"],
+        container=os.environ["AZURE_CONTAINER"],
+    )
+
+
+@pytest.fixture(scope="session")
+def azure_cloud_credentials(
+    azure_connection_info: AzureConnectionInfo,
+) -> dict[str, str]:
+    """Return cloud credentials for Azure."""
+    return {
+        "secret-key": azure_connection_info.secret_key,
+    }
+
+
+@pytest.fixture(scope="session")
+def azure_cloud_configs(
+    azure_connection_info: AzureConnectionInfo,
+) -> dict[str, str]:
+    """Return cloud configs for Azure."""
+    return {
+        "container": azure_connection_info.container,
+        "path": f"velero/{uuid.uuid4()}",
+        "storage-account": azure_connection_info.storage_account,
+    }
 
 
 @pytest.fixture(scope="session")
