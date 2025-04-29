@@ -10,10 +10,10 @@ from typing import Any, Dict, List
 from lightkube import Client, codecs
 from lightkube.core.exceptions import ApiError, LoadResourceError
 from lightkube.models.apps_v1 import DeploymentCondition
-from lightkube.models.core_v1 import ContainerStatus
+from lightkube.models.core_v1 import ContainerStatus, ServicePort
 from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
-from lightkube.resources.core_v1 import Pod, Secret, ServiceAccount
+from lightkube.resources.core_v1 import Pod, Secret, Service, ServiceAccount
 from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
 from lightkube.types import PatchType
 
@@ -22,6 +22,8 @@ from constants import (
     VELERO_BACKUP_LOCATION_RESOURCE,
     VELERO_CLUSTER_ROLE_BINDING_NAME,
     VELERO_DEPLOYMENT_NAME,
+    VELERO_METRICS_PORT,
+    VELERO_METRICS_SERVICE_NAME,
     VELERO_NODE_AGENT_NAME,
     VELERO_SECRET_KEY,
     VELERO_SECRET_NAME,
@@ -31,6 +33,7 @@ from constants import (
 )
 from k8s_utils import (
     K8sResource,
+    k8s_create_cluster_ip_service,
     k8s_create_secret,
     k8s_remove_resource,
     k8s_resource_exists,
@@ -118,6 +121,7 @@ class Velero:
             K8sResource(VELERO_DEPLOYMENT_NAME, Deployment),
             K8sResource(VELERO_NODE_AGENT_NAME, DaemonSet),
             K8sResource(VELERO_SERVICE_ACCOUNT_NAME, ServiceAccount),
+            K8sResource(VELERO_METRICS_SERVICE_NAME, Service),
             K8sResource(self._velero_crb_name, ClusterRoleBinding),
         ]
 
@@ -293,6 +297,39 @@ class Velero:
             logging.error("stderr: %s", cpe.stderr)
             raise VeleroCLIError("Failed to add Velero volume snapshot location") from cpe
 
+    def _configure_metrics_service(self, kube_client: Client) -> None:
+        """Configure the Velero metrics Cluster IP service.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+
+        Raises:
+            VeleroError: If the configuration fails.
+        """
+        try:
+            k8s_create_cluster_ip_service(
+                kube_client,
+                VELERO_METRICS_SERVICE_NAME,
+                self._namespace,
+                selector={"deploy": "velero"},
+                ports=[
+                    ServicePort(
+                        name="metrics",
+                        port=VELERO_METRICS_PORT,
+                        targetPort=VELERO_METRICS_PORT,
+                        protocol="TCP",
+                    )
+                ],
+                labels={
+                    "component": "velero",
+                },
+            )
+        except ApiError as ae:
+            if ae.status.code != 409:
+                raise VeleroError(
+                    "Failed to create ClusterIP service for the Velero Deployment"
+                ) from ae
+
     def is_installed(self, kube_client: Client, use_node_agent: bool) -> bool:
         """Check if Velero is installed in the Kubernetes cluster.
 
@@ -357,15 +394,17 @@ class Velero:
 
         logger.info("Velero storage locations configured successfully")
 
-    def install(self, velero_image: str, use_node_agent: bool) -> None:
+    def install(self, kube_client: Client, velero_image: str, use_node_agent: bool) -> None:
         """Install Velero in the Kubernetes cluster.
 
         Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
             velero_image: The Velero image to use.
             use_node_agent: Whether to use the Velero node agent (DaemonSet).
 
         Raises:
-            VeleroCLIError: If the installation fails.
+            VeleroCLIError: If the CLI installation fails.
+            VeleroError: If metrics service creation fails.
         """
         install_msg = (
             "Installing the Velero with the following settings:\n"
@@ -387,6 +426,7 @@ class Velero:
                 capture_output=True,
                 text=True,
             )
+            self._configure_metrics_service(kube_client)
         except subprocess.CalledProcessError as cpe:
             error_msg = f"'velero install' command returned non-zero exit code: {cpe.returncode}."
             logging.error(error_msg)
@@ -587,7 +627,7 @@ class Velero:
             str: The output of the command.
 
         Raises:
-            VeleroError: If the command fails.
+            VeleroCLIError: If the command fails.
             ValueError: If the command is empty.
         """
         if not command:
@@ -607,7 +647,7 @@ class Velero:
             logging.error("stdout: %s", cpe.stdout)
             logging.error("stderr: %s", cpe.stderr)
 
-            raise VeleroError(error_msg) from cpe
+            raise VeleroCLIError(error_msg) from cpe
 
     # CHECKERS
 
