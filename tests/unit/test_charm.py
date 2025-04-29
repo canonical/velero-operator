@@ -533,6 +533,8 @@ def test_on_run_action_failed(
     [
         (False, StorageRelation.S3),
         (True, StorageRelation.S3),
+        (False, StorageRelation.AZURE),
+        (True, StorageRelation.AZURE),
         (False, None),
         (True, None),
     ],
@@ -556,6 +558,7 @@ def test_on_config_changed_success(
                 USE_NODE_AGENT_CONFIG_KEY: use_node_agent,
                 VELERO_AWS_PLUGIN_CONFIG_KEY: "aws-image",
                 VELERO_IMAGE_CONFIG_KEY: "velero-image",
+                VELERO_AZURE_PLUGIN_CONFIG_KEY: "azure-image",
             },
             relations=relations,
         ),
