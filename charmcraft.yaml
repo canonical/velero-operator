@@ -48,12 +48,13 @@ config:
 
 actions:
   run-cli:
-    description: >
-      Run Velero CLI commands.
-      Useful for managing Velero backup/restores
+    description: Run Velero CLI command. Used to manage Velero backup/restores
     params:
       command:
-        description: "the Velero subcommand to run, allowed subcommands are: backup, restore, schedule"
+        description: |
+          The Velero action to run, allowed commands are: 'backup', 'restore', 'schedule'.
+          Please refer to the Velero CLI documentation for more details on the available commands and their options at:
+          https://velero.io/docs/main/
         type: string
         examples:
         - "backup get"
