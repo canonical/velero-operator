@@ -21,13 +21,13 @@ class S3UriStyle(str, Enum):
 class S3StorageConfig(StorageConfig):
     """Pydantic model for S3 storage config."""
 
-    bucket: str
-    region: Optional[str] = Field(None, alias="region")
+    bucket: str = Field(alias="bucket")
+    region: str = Field(alias="region")
+    access_key: str = Field(alias="access-key")
+    secret_key: str = Field(alias="secret-key")
     endpoint: Optional[str] = Field(None, alias="endpoint")
     path: Optional[str] = Field(None, alias="path")
     s3_uri_style: Optional[S3UriStyle] = Field(None, alias="s3-uri-style")
-    access_key: str = Field(alias="access-key")
-    secret_key: str = Field(alias="secret-key")
 
 
 class S3StorageProvider(VeleroStorageProvider):
@@ -65,11 +65,9 @@ class S3StorageProvider(VeleroStorageProvider):
     @property
     def backup_location_config(self) -> Dict[str, str]:
         """Return the configuration flags for S3 backup location."""
-        flags = {}
+        flags = {"region": self._config.region}
         if self._config.endpoint is not None:
             flags["s3Url"] = self._config.endpoint
-        if self._config.region is not None:
-            flags["region"] = self._config.region
         if self._config.s3_uri_style == S3UriStyle.PATH:
             flags["s3ForcePathStyle"] = "true"
         return flags
@@ -77,7 +75,4 @@ class S3StorageProvider(VeleroStorageProvider):
     @property
     def volume_snapshot_location_config(self) -> Dict[str, str]:
         """Return the configuration flags for S3 volume snapshot location."""
-        flags = {}
-        if self._config.region is not None:
-            flags["region"] = self._config.region
-        return flags
+        return {"region": self._config.region}

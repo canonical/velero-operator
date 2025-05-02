@@ -13,6 +13,7 @@ from velero import (
 
 # Valid S3 input data
 s3_data_1 = {
+    "region": "us-west-1",
     "bucket": "test-bucket",
     "access-key": "test-access-key",
     "secret-key": "test-secret-key",
@@ -31,7 +32,7 @@ s3_data_2 = {
 @pytest.mark.parametrize(
     "s3_data,expected_backup_loc_config,expected_volume_snapshot_loc_config",
     [
-        (s3_data_1, {"s3ForcePathStyle": "true"}, {}),
+        (s3_data_1, {"s3ForcePathStyle": "true", "region": "us-west-1"}, {"region": "us-west-1"}),
         (
             s3_data_2,
             {"region": "us-east-1", "s3Url": "https://s3.amazonaws.com"},
@@ -78,4 +79,6 @@ def test_s3_storage_provider_invalid_data():
                 "s3-uri-style": "invalid",
             },
         )
-    assert f"{S3StorageConfig.__name__} errors: 's3-uri-style'" in str(exc_info.value)
+    assert f"{S3StorageConfig.__name__} errors:" in str(exc_info.value)
+    assert "'s3-uri-style'" in str(exc_info.value)
+    assert "'region'" in str(exc_info.value)

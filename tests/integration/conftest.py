@@ -149,6 +149,7 @@ def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
     if is_ci():
         config["endpoint"] = f"http://{get_host_ip()}:{MICROCEPH_RGW_PORT}"
         config["s3-uri-style"] = "path"
+        config["region"] = "radosgw"
     else:
         config["endpoint"] = os.environ.get("AWS_ENDPOINT", "https://s3.amazonaws.com")
         config["s3-uri-style"] = os.environ.get("AWS_S3_URI_STYLE", "virtual")
