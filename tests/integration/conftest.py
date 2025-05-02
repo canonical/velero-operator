@@ -7,6 +7,7 @@ import logging
 import os
 import socket
 import subprocess
+import time
 import uuid
 
 import boto3
@@ -195,6 +196,7 @@ def k8s_test_resources(lightkube_client: Client):
                     raise
             test_resources["resources"].append(obj)
 
+    time.sleep(10)  # Wait for resources to be ready
     yield test_resources
 
     lightkube_client.delete(Namespace, K8S_TEST_NAMESPACE)
