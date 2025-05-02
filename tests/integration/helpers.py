@@ -64,7 +64,7 @@ async def run_charm_action(unit: Unit, charm_action: str, **params) -> dict:
         params: The parameters to pass to the action.
 
     Raises:
-        AssertionError if the action does not run successfully.
+        AssertionError if the action did not complete successfully.
 
     Returns:
         The results of the action.
@@ -75,7 +75,7 @@ async def run_charm_action(unit: Unit, charm_action: str, **params) -> dict:
     return action.results
 
 
-def k8s_check_resource_exists(
+def k8s_assert_resource_exists(
     client: Client,
     resource: Type[GlobalResource | NamespacedResource],
     name: str,
@@ -90,7 +90,6 @@ def k8s_check_resource_exists(
         namespace: The namespace of the object to check.
 
     Raises:
-        ApiError: If the API call fails.
         AssertionError: If the resource is not found.
     """
     try:
@@ -101,6 +100,36 @@ def k8s_check_resource_exists(
     except ApiError as ae:
         if ae.response.status_code == 404:
             assert False, f"Resource {resource} {name} not found"
+        else:
+            raise
+
+
+def k8s_assert_resource_not_exists(
+    client: Client,
+    resource: Type[GlobalResource | NamespacedResource],
+    name: str,
+    namespace: str,
+) -> None:
+    """Check if a Kubernetes resource does not exist.
+
+    Args:
+        client: The lightkube client to use for the check.
+        resource: The resource type to check.
+        name: The name of the object to check.
+        namespace: The namespace of the object to check.
+
+    Raises:
+        AssertionError: If the resource is found.
+    """
+    try:
+        if issubclass(resource, NamespacedResource):
+            client.get(resource, name=name, namespace=namespace)
+        elif issubclass(resource, GlobalResource):
+            client.get(resource, name=name)
+        assert False, f"Resource {resource.__name__} {name} should not exist"
+    except ApiError as ae:
+        if ae.response.status_code == 404:
+            return
         else:
             raise
 
@@ -127,7 +156,6 @@ def k8s_delete_and_wait(
         interval_seconds: The interval between retries.
 
     Raises:
-        ApiError: If the API call fails.
         AssertionError: If the object still exists after the timeout.
     """
     if issubclass(resource, NamespacedResource):
@@ -142,13 +170,12 @@ def k8s_delete_and_wait(
         reraise=True,
     )
     def wait_for_deletion():
-        try:
-            client.get(resource, name=name)
-            assert False, f"Object {name} still exists in namespace {namespace}"
-        except ApiError as e:
-            if e.status.code == 404:
-                return
-            raise
+        k8s_assert_resource_not_exists(
+            client,
+            resource,
+            name=name,
+            namespace=namespace,
+        )
 
     wait_for_deletion()
 
@@ -169,14 +196,14 @@ def k8s_get_velero_backup(
         The Velero backup object.
 
     Raises:
-        ApiError: If the API call fails.
+        AssertionError: If the backup is not found or if there is an API error.
     """
-    backup_resource = create_namespaced_resource(
+    backup = create_namespaced_resource(
         group="velero.io", version="v1", kind="Backup", plural="backups"
     )
 
     try:
-        return client.get(backup_resource, name=backup_name, namespace=namespace)
+        return client.get(backup, name=backup_name, namespace=namespace)
     except ApiError as e:
         if e.status.code == 404:
             assert False, f"Backup {backup_name} not found in namespace {namespace}"

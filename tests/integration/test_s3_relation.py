@@ -16,7 +16,7 @@ from helpers import (
     TIMEOUT,
     assert_app_status,
     get_model,
-    k8s_check_resource_exists,
+    k8s_assert_resource_exists,
     k8s_delete_and_wait,
     k8s_get_velero_backup,
     run_charm_action,
@@ -150,7 +150,7 @@ async def test_s3_restore(ops_test: OpsTest, k8s_test_resources, lightkube_clien
 
     logger.info("Verifying the restore")
     for resource in test_resources:
-        k8s_check_resource_exists(
+        k8s_assert_resource_exists(
             lightkube_client, type(resource), name=resource.metadata.name, namespace=test_namespace
         )
 
@@ -179,14 +179,6 @@ async def test_remove(ops_test: OpsTest):
     model = get_model(ops_test)
 
     await asyncio.gather(
-        model.remove_application(APP_NAME),
-        model.remove_application(S3_INTEGRATOR),
-        model.block_until(
-            lambda: model.applications[APP_NAME].status == "unknown",
-            timeout=TIMEOUT,
-        ),
-        model.block_until(
-            lambda: model.applications[S3_INTEGRATOR].status == "unknown",
-            timeout=TIMEOUT,
-        ),
+        model.remove_application(APP_NAME, block_until_done=True),
+        model.remove_application(S3_INTEGRATOR, block_until_done=True),
     )

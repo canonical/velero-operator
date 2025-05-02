@@ -15,8 +15,9 @@ from helpers import (
     UNTRUST_ERROR_MESSAGE,
     assert_app_status,
     get_model,
+    k8s_assert_resource_exists,
+    k8s_assert_resource_not_exists,
 )
-from lightkube.core.exceptions import ApiError
 from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
 from lightkube.resources.core_v1 import Secret, Service, ServiceAccount
@@ -76,13 +77,9 @@ async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
         model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
     )
     assert_app_status(app, [MISSING_RELATION_MESSAGE])
-
-    try:
-        lightkube_client.get(DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name)
-        assert False, "DaemonSet was not deleted"
-    except ApiError as ae:
-        if ae.response.status_code != 404:
-            raise ae
+    k8s_assert_resource_not_exists(
+        lightkube_client, DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name
+    )
 
     logger.info("Setting use-node-agent to true")
     await asyncio.gather(
@@ -90,13 +87,9 @@ async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
         model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
     )
     assert_app_status(app, [MISSING_RELATION_MESSAGE])
-
-    try:
-        lightkube_client.get(DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name)
-    except ApiError as ae:
-        if ae.response.status_code != 404:
-            raise ae
-        assert False, "DaemonSet was not created"
+    k8s_assert_resource_exists(
+        lightkube_client, DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name
+    )
 
 
 @pytest.mark.abort_on_fail
@@ -127,11 +120,7 @@ async def test_remove(ops_test: OpsTest, lightkube_client):
     model = get_model(ops_test)
 
     await asyncio.gather(
-        model.remove_application(APP_NAME),
-        model.block_until(
-            lambda: model.applications[APP_NAME].status == "unknown",
-            timeout=TIMEOUT,
-        ),
+        model.remove_application(APP_NAME, block_until_done=True),
     )
 
     logger.info("Checking that all resources are deleted")
