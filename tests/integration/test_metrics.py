@@ -76,14 +76,6 @@ async def test_remove(ops_test: OpsTest):
     model = get_model(ops_test)
 
     await asyncio.gather(
-        model.remove_application(APP_NAME),
-        model.remove_application(GRAFANA_AGENT_APP, destroy_storage=True),
-        model.block_until(
-            lambda: model.applications[APP_NAME].status == "unknown",
-            timeout=TIMEOUT,
-        ),
-        model.block_until(
-            lambda: model.applications[GRAFANA_AGENT_APP].status == "unknown",
-            timeout=TIMEOUT,
-        ),
+        model.remove_application(APP_NAME, block_until_done=True),
+        model.remove_application(GRAFANA_AGENT_APP, destroy_storage=True, block_until_done=True),
     )
