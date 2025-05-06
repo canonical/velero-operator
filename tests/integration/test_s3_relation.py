@@ -145,8 +145,6 @@ async def test_s3_restore(ops_test: OpsTest, k8s_test_resources, lightkube_clien
     await run_charm_action(
         unit, "run-cli", command=f"restore create --from-backup {BACKUP_NAME} --wait"
     )
-    # Wait to ensure the pods have time to start and write to the PVC
-    await asyncio.sleep(10)
 
     logger.info("Verifying the restore")
     for resource in test_resources:

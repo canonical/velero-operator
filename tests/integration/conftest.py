@@ -7,12 +7,12 @@ import logging
 import os
 import socket
 import subprocess
-import time
 import uuid
 
 import boto3
 import botocore.exceptions
 import pytest
+from helpers import k8s_assert_resource_exists
 from lightkube import ApiError, Client, codecs
 from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.core_v1 import Namespace
@@ -197,7 +197,14 @@ def k8s_test_resources(lightkube_client: Client):
                     raise
             test_resources["resources"].append(obj)
 
-    time.sleep(10)  # Wait for resources to be ready
+    for resource in test_resources["resources"]:
+        k8s_assert_resource_exists(
+            lightkube_client,
+            type(resource),
+            name=resource.metadata.name,
+            namespace=K8S_TEST_NAMESPACE,
+        )
+
     yield test_resources
 
     lightkube_client.delete(Namespace, K8S_TEST_NAMESPACE)

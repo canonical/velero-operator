@@ -75,6 +75,7 @@ async def run_charm_action(unit: Unit, charm_action: str, **params) -> dict:
     return action.results
 
 
+@retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
 def k8s_assert_resource_exists(
     client: Client,
     resource: Type[GlobalResource | NamespacedResource],
@@ -104,6 +105,7 @@ def k8s_assert_resource_exists(
             raise
 
 
+@retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
 def k8s_assert_resource_not_exists(
     client: Client,
     resource: Type[GlobalResource | NamespacedResource],
