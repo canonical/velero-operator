@@ -17,7 +17,7 @@ jobs:
 
   tests:
     name: Run Tests
-    uses: ./.github/workflows/integrate.yaml
+    uses: ./.github/workflows/check.yaml
     secrets: inherit
 
   # publish runs in series with tests, and only publishes if tests passes
