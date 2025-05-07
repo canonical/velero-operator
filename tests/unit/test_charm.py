@@ -15,6 +15,7 @@ from velero import S3StorageProvider, VeleroError, VeleroStatusError
 
 VELERO_IMAGE_CONFIG_KEY = "velero-image"
 USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
+DEFAULT_VOLUMES_TO_FS_BACKUP_CONFIG_KEY = "default-volumes-to-fs-backup"
 VELERO_AWS_PLUGIN_CONFIG_KEY = "velero-aws-plugin-image"
 RELATIONS = "|".join([r.value for r in StorageRelation])
 
@@ -68,7 +69,7 @@ def test_invalid_image_config(image_key):
 
 
 @pytest.mark.parametrize(
-    "code, expected_status",
+    "code,expected_status",
     [
         (
             403,
@@ -101,7 +102,7 @@ def test_charm_k8s_access_failed(mock_lightkube_client, code, expected_status):
 @patch("velero.Velero.check_velero_deployment")
 @patch("velero.Velero.check_velero_storage_locations")
 @pytest.mark.parametrize(
-    "deployment_ok, nodeagent_ok, has_rel, provider_ok, status, use_node_agent",
+    "deployment_ok,nodeagent_ok,has_rel,provider_ok,status,use_node_agent",
     [
         # Deployment not ready
         (
@@ -529,16 +530,17 @@ def test_on_run_action_failed(
 
 
 @pytest.mark.parametrize(
-    "use_node_agent,relation",
+    "use_node_agent,default_volumes_to_fs_backup,relation",
     [
-        (False, StorageRelation.S3),
-        (True, StorageRelation.S3),
-        (False, None),
-        (True, None),
+        (False, False, StorageRelation.S3),
+        (True, False, StorageRelation.S3),
+        (False, True, None),
+        (True, True, None),
     ],
 )
 def test_on_config_changed_success(
     use_node_agent,
+    default_volumes_to_fs_backup,
     relation,
     mock_lightkube_client,
     mock_velero,
@@ -554,6 +556,7 @@ def test_on_config_changed_success(
         testing.State(
             config={
                 USE_NODE_AGENT_CONFIG_KEY: use_node_agent,
+                DEFAULT_VOLUMES_TO_FS_BACKUP_CONFIG_KEY: default_volumes_to_fs_backup,
                 VELERO_AWS_PLUGIN_CONFIG_KEY: "aws-image",
                 VELERO_IMAGE_CONFIG_KEY: "velero-image",
             },
@@ -589,6 +592,10 @@ def test_on_config_changed_success(
 
     mock_velero.update_velero_deployment_image.assert_called_once_with(
         mock_lightkube_client, "velero-image"
+    )
+
+    mock_velero.update_velero_deployment_flags.assert_called_once_with(
+        mock_lightkube_client, default_volumes_to_fs_backup
     )
 
 
