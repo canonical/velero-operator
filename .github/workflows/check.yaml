@@ -45,13 +45,24 @@ jobs:
     - name: Check out repo
       uses: actions/checkout@v4
 
-    - name: Setup operator environment
-      uses: charmed-kubernetes/actions-operator@main
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
       with:
-        provider: microk8s
-        channel: 1.29-strict/stable
-        juju-channel: 3.4/stable
-        microk8s-addons: "dns storage rbac metallb:10.64.140.43-10.64.140.49"
+        python-version: 3.12
+
+    - name: Setup operator environment
+      run: |
+        # Use https://github.com/canonical/concierge
+        # No currently stable action to set up Canonical Kubernetes
+        # https://github.com/canonical/concierge/issues/51
+        sudo apt-get remove -y docker-ce docker-ce-cli containerd.io
+        sudo rm -rf /run/containerd
+
+        python -m pip install --upgrade pip
+        python -m pip install tox
+
+        sudo snap install --classic concierge
+        sudo concierge prepare -p k8s
 
     - name: Run integration tests
       env:
