@@ -45,6 +45,12 @@ config:
         The Velero AWS plugin container image to deploy
       default: "velero/velero-plugin-for-aws:v1.10.0"
       type: string
+    default-volumes-to-fs-backup:
+      description: |
+        Controls whether to backup all volumes using the file system backup method
+        (requires the node agent to be deployed)
+      default: false
+      type: boolean
 
 actions:
   run-cli:
