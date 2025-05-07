@@ -3,7 +3,7 @@
 
 name: velero-operator
 type: charm
-title: Velero Operator Charm
+title: Velero Operator
 
 summary: Server Charm for backing up and restoring Kubernetes cluster resources using Velero.
 
