@@ -12,6 +12,7 @@ import uuid
 import boto3
 import botocore.exceptions
 import pytest
+from helpers import k8s_assert_resource_exists
 from lightkube import ApiError, Client, codecs
 from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.core_v1 import Namespace
@@ -148,6 +149,7 @@ def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
     if is_ci():
         config["endpoint"] = f"http://{get_host_ip()}:{MICROCEPH_RGW_PORT}"
         config["s3-uri-style"] = "path"
+        config["region"] = "radosgw"
     else:
         config["endpoint"] = os.environ.get("AWS_ENDPOINT", "https://s3.amazonaws.com")
         config["s3-uri-style"] = os.environ.get("AWS_S3_URI_STYLE", "virtual")
@@ -194,6 +196,14 @@ def k8s_test_resources(lightkube_client: Client):
                 else:
                     raise
             test_resources["resources"].append(obj)
+
+    for resource in test_resources["resources"]:
+        k8s_assert_resource_exists(
+            lightkube_client,
+            type(resource),
+            name=resource.metadata.name,
+            namespace=K8S_TEST_NAMESPACE,
+        )
 
     yield test_resources
 

@@ -16,9 +16,11 @@ from helpers import (
     TIMEOUT,
     assert_app_status,
     get_model,
+    k8s_assert_resource_exists,
+    k8s_delete_and_wait,
+    k8s_get_velero_backup,
     run_charm_action,
 )
-from lightkube import ApiError
 from lightkube.resources.core_v1 import Namespace
 from pytest_operator.plugin import OpsTest
 
@@ -108,7 +110,7 @@ async def test_configure_s3_plugin_image(ops_test: OpsTest):
 
 
 @pytest.mark.abort_on_fail
-async def test_s3_backup(ops_test: OpsTest, k8s_test_resources):
+async def test_s3_backup(ops_test: OpsTest, k8s_test_resources, lightkube_client):
     """Test the backup functionality of the velero-operator charm."""
     logger.info("Testing backup functionality")
     model = get_model(ops_test)
@@ -116,14 +118,17 @@ async def test_s3_backup(ops_test: OpsTest, k8s_test_resources):
     test_namespace = k8s_test_resources["namespace"].metadata.name
 
     logger.info("Creating a backup")
+    # Includes pv to test if the VolumeSnapshotLocation is configured correctly
     await run_charm_action(
         unit,
         "run-cli",
-        command=f"backup create {BACKUP_NAME} --include-namespaces {test_namespace}",
+        command=f"backup create {BACKUP_NAME} --wait --include-namespaces {test_namespace} "
+        f"--include-cluster-scoped-resources persistentvolumes",
     )
 
     logger.info("Verifying the backup")
-    await run_charm_action(unit, "run-cli", command=f"backup describe {BACKUP_NAME}")
+    backup = k8s_get_velero_backup(lightkube_client, BACKUP_NAME, model.name)
+    assert backup["status"]["phase"] == "Completed", "Backup is not completed"
 
 
 @pytest.mark.abort_on_fail
@@ -134,24 +139,18 @@ async def test_s3_restore(ops_test: OpsTest, k8s_test_resources, lightkube_clien
     unit = model.applications[APP_NAME].units[0]
     test_resources = k8s_test_resources["resources"]
     test_namespace = k8s_test_resources["namespace"].metadata.name
-    lightkube_client.delete(Namespace, test_namespace, grace_period=0)
+    k8s_delete_and_wait(lightkube_client, Namespace, test_namespace, grace_period=0)
 
     logger.info("Creating a restore")
-    await run_charm_action(unit, "run-cli", command=f"restore create --from-backup {BACKUP_NAME}")
+    await run_charm_action(
+        unit, "run-cli", command=f"restore create --from-backup {BACKUP_NAME} --wait"
+    )
 
     logger.info("Verifying the restore")
     for resource in test_resources:
-        try:
-            lightkube_client.get(
-                type(resource), name=resource.metadata.name, namespace=test_namespace
-            )
-        except ApiError as ae:
-            if ae.response.status_code == 404:
-                assert (
-                    False
-                ), f"Resource {resource.kind} {resource.metadata.name} not found after restore"
-            else:
-                raise
+        k8s_assert_resource_exists(
+            lightkube_client, type(resource), name=resource.metadata.name, namespace=test_namespace
+        )
 
 
 @pytest.mark.abort_on_fail
@@ -178,14 +177,6 @@ async def test_remove(ops_test: OpsTest):
     model = get_model(ops_test)
 
     await asyncio.gather(
-        model.remove_application(APP_NAME),
-        model.remove_application(S3_INTEGRATOR),
-        model.block_until(
-            lambda: model.applications[APP_NAME].status == "unknown",
-            timeout=TIMEOUT,
-        ),
-        model.block_until(
-            lambda: model.applications[S3_INTEGRATOR].status == "unknown",
-            timeout=TIMEOUT,
-        ),
+        model.remove_application(APP_NAME, block_until_done=True),
+        model.remove_application(S3_INTEGRATOR, block_until_done=True),
     )
