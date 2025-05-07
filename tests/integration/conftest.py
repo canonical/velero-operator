@@ -74,7 +74,7 @@ def setup_microceph() -> S3ConnectionInfo:
 
     subprocess.run(["sudo", "snap", "install", "microceph"], check=True)
     subprocess.run(["sudo", "microceph", "cluster", "bootstrap"], check=True)
-    subprocess.run(["sudo", "microceph", "disk", "add", "loop,4G,3"], check=True)
+    subprocess.run(["sudo", "microceph", "disk", "add", "loop,1G,3"], check=True)
     subprocess.run(
         ["sudo", "microceph", "enable", "rgw", "--port", str(MICROCEPH_RGW_PORT)], check=True
     )
