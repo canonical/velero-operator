@@ -79,6 +79,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         self.framework.observe(self.on.install, self._reconcile)
         self.framework.observe(self.on.update_status, self._reconcile)
         self.framework.observe(self.on.config_changed, self._reconcile)
+        self.framework.observe(self.on.upgrade_charm, self._on_upgrade)
         self.framework.observe(self.on.remove, self._on_remove)
 
         for relation in [r.value for r in StorageRelation]:
@@ -129,7 +130,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
             if isinstance(event, ops.ConfigChangedEvent):
                 self._log_and_set_status(ops.MaintenanceStatus("Updating Velero configuration"))
-                self._on_config_changed()
+                self._update_config()
 
             # FIXME: Avoid running on duplicate events
             # When the relation is created/joined, where will be two RelationChangedEvents
@@ -234,7 +235,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         self._log_and_set_status(ops.MaintenanceStatus("Removing Velero from the cluster"))
         self.velero.remove(self.lightkube_client)
 
-    def _on_config_changed(self) -> None:
+    def _update_config(self) -> None:
         """Handle the config-changed event.
 
         Raises:
@@ -253,6 +254,11 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             self.velero.update_velero_node_agent_image(
                 self.lightkube_client, self.config.velero_image
             )
+
+    def _on_upgrade(self, event: ops.UpgradeCharmEvent) -> None:
+        """Handle the upgrade-charm event."""
+        self._log_and_set_status(ops.MaintenanceStatus("Upgrading Velero"))
+        self.velero.upgrade(self.lightkube_client)
 
     # HELPER METHODS
 
