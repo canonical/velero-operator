@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 MICROCEPH_BUCKET = "testbucket"
 MICROCEPH_RGW_PORT = 7480
 K8S_TEST_NAMESPACE = "velero-integration-tests"
-K8S_TEST_RESOURCES_YAML_PATH = "./tests/integration/resources/test_resources.yaml"
+K8S_TEST_RESOURCES_YAML_PATH = "./tests/integration/resources/test_resources.yaml.j2"
+K8S_TEST_PVC_RESOURCE_NAME = "test-pvc"
+K8S_TEST_PVC_FILE_PATH = "test-file"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -172,6 +174,8 @@ def k8s_test_resources(lightkube_client: Client):
     test_resources = {
         "namespace": namespace,
         "resources": [],
+        "test_file_path": K8S_TEST_PVC_FILE_PATH,
+        "pvc_name": K8S_TEST_PVC_RESOURCE_NAME,
     }
 
     try:
@@ -184,7 +188,13 @@ def k8s_test_resources(lightkube_client: Client):
             raise
 
     with open(K8S_TEST_RESOURCES_YAML_PATH) as f:
-        for obj in codecs.load_all_yaml(f):
+        for obj in codecs.load_all_yaml(
+            f,
+            context={
+                "pvc_name": K8S_TEST_PVC_RESOURCE_NAME,
+                "test_file": K8S_TEST_PVC_FILE_PATH,
+            },
+        ):
             if obj.metadata and not obj.metadata.namespace:
                 obj.metadata.namespace = K8S_TEST_NAMESPACE
             try:
