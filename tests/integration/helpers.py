@@ -1,6 +1,7 @@
 # Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
 
+import subprocess
 from pathlib import Path
 from typing import Type
 
@@ -11,6 +12,8 @@ from juju.unit import Unit
 from lightkube import ApiError, Client
 from lightkube.core.resource import GlobalResource, NamespacedResource
 from lightkube.generic_resource import create_namespaced_resource
+from lightkube.resources.apps_v1 import Deployment
+from lightkube.resources.core_v1 import Pod
 from pytest_operator.plugin import OpsTest
 from tenacity import retry, retry_if_exception_type, stop_after_delay, wait_fixed
 
@@ -182,6 +185,118 @@ def k8s_delete_and_wait(
     wait_for_deletion()
 
 
+@retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
+def k8s_get_pvc_content(pod: Pod, pvc_name: str, test_file: str) -> str:
+    """Get the content of a mounted PVC in a pod.
+
+    Args:
+        pod: The pod object.
+        pvc_name: The name of the PVC.
+        test_file: The path to the test file in the PVC.
+
+    Raises:
+        ValueError: If the pod does not have the PVC mounted or if the mount path is not found.
+        SubprocessError: If the kubectl command fails.
+
+    Returns:
+        The content of the mounted PVC.
+    """
+    if not pod.metadata or not pod.spec:
+        raise ValueError("Pod metadata or spec is missing")
+
+    volume_name = next(
+        (
+            v.name
+            for v in pod.spec.volumes or []
+            if v.persistentVolumeClaim and v.persistentVolumeClaim.claimName == pvc_name
+        ),
+        None,
+    )
+    if not volume_name:
+        raise ValueError(f"PVC {pvc_name} not found in pod {pod.metadata.name}")
+
+    for container in pod.spec.containers or []:
+        for mount in container.volumeMounts or []:
+            if mount.name == volume_name:
+                cmd = [
+                    "kubectl",
+                    "exec",
+                    pod.metadata.name,
+                    "-n",
+                    pod.metadata.namespace,
+                    "-c",
+                    container.name,
+                    "--",
+                    "cat",
+                    f"{mount.mountPath}/{test_file}",
+                ]
+                result = subprocess.check_output(cmd, text=True)
+                return result.strip()
+
+    raise ValueError(f"Mount path for PVC {pvc_name} not found in pod {pod.metadata.name}")
+
+
+@retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
+def k8s_get_deployment(
+    client: Client,
+    name: str,
+    namespace: str,
+) -> Deployment:
+    """Get the deployment object.
+
+    Args:
+        client: The lightkube client to use for the retrieval.
+        name: The name of the deployment.
+        namespace: The namespace of the deployment.
+
+    Returns:
+        The deployment object.
+
+    Raises:
+        AssertionError: If the deployment is not found or if there is an API error.
+    """
+    try:
+        return client.get(Deployment, name=name, namespace=namespace)
+    except ApiError as e:
+        if e.status.code == 404:
+            assert False, f"Deployment {name} not found in namespace {namespace}"
+        else:
+            raise
+
+
+def k8s_get_velero_deployment_container_args(
+    client: Client,
+    namespace: str,
+) -> list[str]:
+    """Get the container args of the Velero deployment.
+
+    Args:
+        client: The lightkube client to use for the retrieval.
+        name: The name of the deployment.
+        namespace: The namespace of the deployment.
+
+    Returns:
+        The container args of the Velero deployment.
+
+    Raises:
+        AssertionError: If the deployment is not found or if there is an API error.
+    """
+    deployment = k8s_get_deployment(client, "velero", namespace)
+
+    if not deployment.spec or not deployment.spec.template.spec:
+        assert False, "Deployment spec or template spec is missing"
+
+    container = next(
+        (c for c in deployment.spec.template.spec.containers if c.name == "velero"),
+        None,
+    )
+    if not container or not container.args:
+        assert False, "Container 'velero' not found or args are missing"
+
+    return container.args
+
+
+@retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
 def k8s_get_velero_backup(
     client: Client,
     backup_name: str,

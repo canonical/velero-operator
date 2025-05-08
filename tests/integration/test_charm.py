@@ -17,6 +17,7 @@ from helpers import (
     get_model,
     k8s_assert_resource_exists,
     k8s_assert_resource_not_exists,
+    k8s_get_velero_deployment_container_args,
 )
 from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
@@ -40,7 +41,10 @@ async def test_build_and_deploy(ops_test: OpsTest):
 
     await asyncio.gather(
         model.deploy(
-            charm, application_name=APP_NAME, trust=False, config={"use-node-agent": True}
+            charm,
+            application_name=APP_NAME,
+            trust=False,
+            config={"use-node-agent": True, "default-volumes-to-fs-backup": True},
         ),
         model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=TIMEOUT),
     )
@@ -90,6 +94,32 @@ async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
     k8s_assert_resource_exists(
         lightkube_client, DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name
     )
+
+
+@pytest.mark.abort_on_fail
+async def test_config_default_volumes_to_fs_backup(ops_test: OpsTest, lightkube_client):
+    """Test the config-changed hook for the default-volumes-to-fs-backup config option."""
+    logger.info("Testing default-volumes-to-fs-backup config option")
+    model = get_model(ops_test)
+    app = model.applications[APP_NAME]
+
+    logger.info("Setting default-volumes-to-fs-backup to false")
+    await asyncio.gather(
+        app.set_config({"default-volumes-to-fs-backup": "false"}),
+        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
+    )
+    assert_app_status(app, [MISSING_RELATION_MESSAGE])
+    args = k8s_get_velero_deployment_container_args(lightkube_client, model.name)
+    assert "--default-volumes-to-fs-backup=false" in args
+
+    logger.info("Setting default-volumes-to-fs-backup to true")
+    await asyncio.gather(
+        app.set_config({"default-volumes-to-fs-backup": "true"}),
+        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
+    )
+    assert_app_status(app, [MISSING_RELATION_MESSAGE])
+    args = k8s_get_velero_deployment_container_args(lightkube_client, model.name)
+    assert "--default-volumes-to-fs-backup=true" in args
 
 
 @pytest.mark.abort_on_fail
