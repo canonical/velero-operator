@@ -15,6 +15,7 @@ from velero import (
 
 # Valid S3 input data
 s3_data_1 = {
+    "region": "us-west-1",
     "bucket": "test-bucket",
     "access-key": "test-access-key",
     "secret-key": "test-secret-key",
@@ -38,13 +39,19 @@ azure_data = {
 
 
 @pytest.mark.parametrize(
-    "s3_data, expected_config",
+    "s3_data,expected_backup_loc_config,expected_volume_snapshot_loc_config",
     [
-        (s3_data_1, {"s3ForcePathStyle": "true"}),
-        (s3_data_2, {"region": "us-east-1", "s3Url": "https://s3.amazonaws.com"}),
+        (s3_data_1, {"s3ForcePathStyle": "true", "region": "us-west-1"}, {"region": "us-west-1"}),
+        (
+            s3_data_2,
+            {"region": "us-east-1", "s3Url": "https://s3.amazonaws.com"},
+            {"region": "us-east-1"},
+        ),
     ],
 )
-def test_s3_storage_provider_success(s3_data, expected_config):
+def test_s3_storage_provider_success(
+    s3_data, expected_backup_loc_config, expected_volume_snapshot_loc_config
+):
     """Test S3 storage provider initialization with valid data."""
     provider = S3StorageProvider("s3-plugin-image", s3_data)
 
@@ -61,7 +68,8 @@ def test_s3_storage_provider_success(s3_data, expected_config):
     encoded_secret = base64.b64encode(expected_secret.encode()).decode()
     assert provider.secret_data == encoded_secret
 
-    assert provider.config_flags == expected_config
+    assert provider.backup_location_config == expected_backup_loc_config
+    assert provider.volume_snapshot_location_config == expected_volume_snapshot_loc_config
 
 
 def test_s3_storage_provider_invalid_data():
@@ -80,7 +88,9 @@ def test_s3_storage_provider_invalid_data():
                 "s3-uri-style": "invalid",
             },
         )
-    assert f"{S3StorageConfig.__name__} errors: 's3-uri-style'" in str(exc_info.value)
+    assert f"{S3StorageConfig.__name__} errors:" in str(exc_info.value)
+    assert "'s3-uri-style'" in str(exc_info.value)
+    assert "'region'" in str(exc_info.value)
 
 
 def test_azure_storage_provider_success():

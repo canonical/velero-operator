@@ -106,12 +106,11 @@ CI=true tox -vve integration -- --model velero-testing
 #### 2. Reuse Local RadosGW
 
 You can also run the integration tests and point them to an existing S3 to be used. This can also be the RadosGW created with `CI=true`.
-
-You can run the integration tests and point them to an existing RadosGW endpoint by setting the following environment variables, before running the integration tests:
+For example, set the following environment variables, before running the tests:
 
 ```bash
 export AWS_ENDPOINT="http://$(hostname):7480"
-export AWS_REGION=""
+export AWS_REGION=radosgw
 export AWS_S3_URI_STYLE=path
 export AWS_BUCKET=testbucket
 export AWS_SECRET_KEY=$(sudo microceph.radosgw-admin user info --uid test \
@@ -120,11 +119,9 @@ export AWS_ACCESS_KEY=$(sudo microceph.radosgw-admin user info --uid test \
         | jq -r ".keys[0].access_key")
 ```
 
-> **Note**: `AWS_REGION` is optional, unless you are using AWS
+> **Note**: `AWS_S3_URI_STYLE` is optional, unless you are using local S3(must be set to `path`)
 >
 > **Note**: `AWS_ENDPOINT` is optional, unless you are using local S3
->
-> **Note**: `AWS_REGION` is optional, unless you are using local S3
 
 Then you can run the integration tests with:
 

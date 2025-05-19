@@ -702,7 +702,7 @@ def test_add_backup_location_success(mock_run, velero):
     provider.plugin = "test-plugin"
     provider.bucket = "test-bucket"
     provider.path = None
-    provider.config_flags = {"region": "us-west-2", "other-flag": "value"}
+    provider.backup_location_config = {"region": "us-west-2", "other-flag": "value"}
 
     velero._add_backup_location(provider)
 
@@ -718,7 +718,7 @@ def test_add_backup_location_success(mock_run, velero):
         "--bucket",
         provider.bucket,
         "--config",
-        f"region={provider.config_flags['region']},other-flag={provider.config_flags['other-flag']}",
+        f"region={provider.backup_location_config['region']},other-flag={provider.backup_location_config['other-flag']}",
         f"--credential={VELERO_SECRET_NAME}={VELERO_SECRET_KEY}",
         "--default",
         f"--namespace={NAMESPACE}",
@@ -735,7 +735,6 @@ def test_add_backup_location_failed(caplog, mock_run_failing, velero):
     provider = MagicMock()
     provider.plugin = "test-plugin"
     provider.bucket = "test-bucket"
-    provider.config_flags = {"region": "us-west-2", "other-flag": "value"}
 
     with pytest.raises(VeleroError):
         velero._add_backup_location(provider)
@@ -749,7 +748,7 @@ def test_add_volume_snapshot_location_success(mock_run, velero):
     provider = MagicMock()
     provider.plugin = "test-plugin"
     provider.bucket = "test-bucket"
-    provider.config_flags = {"region": "us-west-2", "other-flag": "value"}
+    provider.volume_snapshot_location_config = {"region": "us-west-2"}
 
     velero._add_volume_snapshot_location(provider)
 
@@ -761,7 +760,7 @@ def test_add_volume_snapshot_location_success(mock_run, velero):
         "--provider",
         provider.plugin,
         "--config",
-        f"region={provider.config_flags['region']},other-flag={provider.config_flags['other-flag']}",
+        f"region={provider.volume_snapshot_location_config['region']}",
         f"--credential={VELERO_SECRET_NAME}={VELERO_SECRET_KEY}",
         f"--namespace={NAMESPACE}",
         "--labels",

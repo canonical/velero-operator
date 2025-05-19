@@ -75,6 +75,12 @@ jobs:
         kubectl describe volumesnapshotlocations -A
       if: failure()
 
+    - name: Describe Velero Backups and Restores
+      run: |
+        kubectl describe backups -A
+        kubectl describe restores -A
+      if: failure()
+
     - name: Describe replicasets
       run: kubectl describe replicasets -A
       if: failure()
