@@ -73,8 +73,14 @@ class VeleroStorageProvider(ABC):
 
     @property
     @abstractmethod
-    def config_flags(self) -> Dict[str, str]:  # pragma: no cover
-        """Return the configuration flags for the storage provider."""
+    def backup_location_config(self) -> Dict[str, str]:  # pragma: no cover
+        """Return the configuration flags for the backup location."""
+        ...
+
+    @property
+    @abstractmethod
+    def volume_snapshot_location_config(self) -> Dict[str, str]:  # pragma: no cover
+        """Return the configuration flags for the volume snapshot location."""
         ...
 
     def _encode_secret(self, secret: str) -> str:

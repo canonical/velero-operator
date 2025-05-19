@@ -3,7 +3,7 @@
 
 name: velero-operator
 type: charm
-title: Velero Operator Charm
+title: Velero Operator
 
 summary: Server Charm for backing up and restoring Kubernetes cluster resources using Velero.
 
@@ -12,13 +12,15 @@ description: |
   This charm simplifies the deployment and configuration of Velero, integrating seamlessly with cloud storage providers for secure and scalable disaster recovery.
 
 links:
+  documentation: https://discourse.charmhub.io/t/velero-operator-charm-documentation/17482
   issues:
   - https://github.com/canonical/velero-operator/issues
   source:
   - https://github.com/canonical/velero-operator
   website:
-  - https://github.com/canonical/velero-operator
+  - https://charmhub.io/velero-operator
   - https://velero.io
+  - https://github.com/canonical/velero-operator
 
 platforms:
   ubuntu@24.04:amd64:
@@ -46,12 +48,13 @@ config:
 
 actions:
   run-cli:
-    description: >
-      Run Velero CLI commands.
-      Useful for managing Velero backup/restores
+    description: Run Velero CLI command. Used to manage Velero backup/restores
     params:
       command:
-        description: "the Velero subcommand to run, allowed subcommands are: backup, restore, schedule"
+        description: |
+          The Velero action to run, allowed commands are: 'backup', 'restore', 'schedule'.
+          Please refer to the Velero CLI documentation for more details on the available commands and their options at:
+          https://velero.io/docs/main/
         type: string
         examples:
         - "backup get"

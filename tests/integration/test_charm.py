@@ -8,20 +8,16 @@ import logging
 import pytest
 from helpers import (
     APP_NAME,
-    AZURE_INTEGRATOR,
-    AZURE_INTEGRATOR_CHANNEL,
     DEPLOYMENT_IMAGE_ERROR_MESSAGE_1,
     DEPLOYMENT_IMAGE_ERROR_MESSAGE_2,
     MISSING_RELATION_MESSAGE,
-    MULTIPLE_RELATIONS_MESSAGE,
-    S3_INTEGRATOR,
-    S3_INTEGRATOR_CHANNEL,
     TIMEOUT,
     UNTRUST_ERROR_MESSAGE,
     assert_app_status,
     get_model,
+    k8s_assert_resource_exists,
+    k8s_assert_resource_not_exists,
 )
-from lightkube.core.exceptions import ApiError
 from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
 from lightkube.resources.core_v1 import Secret, Service, ServiceAccount
@@ -46,11 +42,7 @@ async def test_build_and_deploy(ops_test: OpsTest):
         model.deploy(
             charm, application_name=APP_NAME, trust=False, config={"use-node-agent": True}
         ),
-        model.deploy(S3_INTEGRATOR, channel=S3_INTEGRATOR_CHANNEL),
-        model.deploy(AZURE_INTEGRATOR, channel=AZURE_INTEGRATOR_CHANNEL),
-        model.wait_for_idle(
-            apps=[APP_NAME, S3_INTEGRATOR, AZURE_INTEGRATOR], status="blocked", timeout=TIMEOUT
-        ),
+        model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=TIMEOUT),
     )
     assert_app_status(model.applications[APP_NAME], [UNTRUST_ERROR_MESSAGE])
 
@@ -72,33 +64,6 @@ async def test_trust(ops_test: OpsTest):
     assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
 
 
-async def test_multiple_integrator_relations(ops_test: OpsTest):
-    """Relate the S3 and Azure integrator charms to the velero-operator charm."""
-    model = get_model(ops_test)
-
-    logger.info("Relating velero-operator to s3-integrator and azure-integrator")
-    await model.integrate(APP_NAME, S3_INTEGRATOR)
-    await model.integrate(APP_NAME, AZURE_INTEGRATOR)
-    await model.wait_for_idle(
-        apps=[APP_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
-    assert_app_status(model.applications[APP_NAME], [MULTIPLE_RELATIONS_MESSAGE])
-
-    logger.info("Unrelating velero-operator from s3-integrator and azure-integrator")
-    await ops_test.juju(*["remove-relation", APP_NAME, AZURE_INTEGRATOR])
-    await ops_test.juju(*["remove-relation", APP_NAME, S3_INTEGRATOR])
-    await model.wait_for_idle(
-        apps=[APP_NAME],
-        status="blocked",
-        raise_on_blocked=False,
-        timeout=TIMEOUT,
-    )
-    assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
-
-
 @pytest.mark.abort_on_fail
 async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
     """Test the config-changed hook for the use-node-agent config option."""
@@ -112,13 +77,9 @@ async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
         model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
     )
     assert_app_status(app, [MISSING_RELATION_MESSAGE])
-
-    try:
-        lightkube_client.get(DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name)
-        assert False, "DaemonSet was not deleted"
-    except ApiError as ae:
-        if ae.response.status_code != 404:
-            raise ae
+    k8s_assert_resource_not_exists(
+        lightkube_client, DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name
+    )
 
     logger.info("Setting use-node-agent to true")
     await asyncio.gather(
@@ -126,13 +87,9 @@ async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
         model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
     )
     assert_app_status(app, [MISSING_RELATION_MESSAGE])
-
-    try:
-        lightkube_client.get(DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name)
-    except ApiError as ae:
-        if ae.response.status_code != 404:
-            raise ae
-        assert False, "DaemonSet was not created"
+    k8s_assert_resource_exists(
+        lightkube_client, DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name
+    )
 
 
 @pytest.mark.abort_on_fail
@@ -164,8 +121,6 @@ async def test_remove(ops_test: OpsTest, lightkube_client):
 
     await asyncio.gather(
         model.remove_application(APP_NAME, block_until_done=True),
-        model.remove_application(S3_INTEGRATOR, block_until_done=True),
-        model.remove_application(AZURE_INTEGRATOR, block_until_done=True),
     )
 
     logger.info("Checking that all resources are deleted")
