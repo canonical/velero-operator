@@ -4,13 +4,14 @@ items:
 - apiVersion: v1
   kind: PersistentVolumeClaim
   metadata:
-    name: dummy-pvc
+    name: {{ pvc_name }}
   spec:
     accessModes:
       - ReadWriteOnce
     resources:
       requests:
-        storage: 50Mi
+        storage: 100Mi
+
 - apiVersion: apps/v1
   kind: Deployment
   metadata:
@@ -24,16 +25,19 @@ items:
       metadata:
         labels:
           app: dummy
+          pvc: {{ pvc_name }}
       spec:
         containers:
         - name: dummy-container
-          image: nginx
-          ports:
-          - containerPort: 80
+          image: busybox
+          command:
+          - sh
+          - -c
+          - "date +\"%Y-%m-%d %H:%M:%S\" >> /test-data/{{ test_file }} && sleep 3600"
           volumeMounts:
           - name: dummy-volume
             mountPath: /test-data
         volumes:
         - name: dummy-volume
           persistentVolumeClaim:
-            claimName: dummy-pvc
+            claimName: {{ pvc_name }}
