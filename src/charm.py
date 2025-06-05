@@ -254,6 +254,10 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 self.lightkube_client, self.config.velero_image
             )
 
+        self.velero.update_velero_deployment_flags(
+            self.lightkube_client, self.config.default_volumes_to_fs_backup
+        )
+
     # HELPER METHODS
 
     def _log_and_set_status(
