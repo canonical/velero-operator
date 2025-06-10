@@ -24,6 +24,7 @@ from helpers import (
 )
 from lightkube.resources.core_v1 import Namespace, Pod
 from pytest_operator.plugin import OpsTest
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 logger = logging.getLogger(__name__)
 
@@ -170,9 +171,16 @@ async def test_s3_restore(ops_test: OpsTest, k8s_test_resources, lightkube_clien
     for pod in list(
         lightkube_client.list(Pod, namespace=test_namespace, labels={"pvc": test_pvc_name})
     ):
-        assert (
-            len(k8s_get_pvc_content(pod, test_pvc_name, test_file).splitlines()) == 2
-        ), "PVC content is not as expected, should be 2 lines after restore"
+        for attempt in Retrying(
+            stop=stop_after_attempt(3),
+            wait=wait_fixed(5),
+            retry=retry_if_exception_type(AssertionError),
+        ):
+            with attempt:
+                content = k8s_get_pvc_content(pod, test_pvc_name, test_file)
+                assert (
+                    len(content.splitlines()) == 2
+                ), "PVC content is not as expected, should be 2 lines after restore"
 
 
 @pytest.mark.abort_on_fail
