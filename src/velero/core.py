@@ -93,25 +93,15 @@ class Velero:
 
     @property
     def _crds(self) -> List[K8sResource]:
-        """Return the Velero CRDs by parsing the dry-run install YAML output.
+        """Return the Velero CRDs.
 
         Raises:
             VeleroCLIError: If the CRDs cannot be loaded from the dry-run install output.
         """
-        try:
-            output = subprocess.check_output(
-                [self._velero_binary_path, "install", "--crds-only", "--dry-run", "-o", "yaml"],
-                text=True,
-            )
-            resources = codecs.load_all_yaml(output)
-        except (LoadResourceError, subprocess.CalledProcessError) as e:
-            logger.error("Failed to load Velero CRDs from dry-run install: %s", e)
-            raise VeleroCLIError("Failed to load Velero CRDs from dry-run install") from e
-
         return [
             K8sResource(name=crd.metadata.name, type=CustomResourceDefinition)
-            for crd in reversed(resources)
-            if isinstance(crd, CustomResourceDefinition) and crd.metadata and crd.metadata.name
+            for crd in reversed(self._get_crds())
+            if crd.metadata and crd.metadata.name
         ]
 
     @property
@@ -146,6 +136,26 @@ class Velero:
         return self._storage_provider_resources + self._crds + self._core_resources
 
     # METHODS
+
+    def _get_crds(self) -> List[CustomResourceDefinition]:
+        """Get the Velero CRDs from the dry-run install output.
+
+        Raises:
+            VeleroCLIError: If the CRDs cannot be loaded from the dry-run install output.
+        """
+        try:
+            output = subprocess.check_output(
+                [self._velero_binary_path, "install", "--crds-only", "--dry-run", "-o", "yaml"],
+                text=True,
+            )
+            return [
+                crd
+                for crd in codecs.load_all_yaml(output)
+                if isinstance(crd, CustomResourceDefinition)
+            ]
+        except (LoadResourceError, subprocess.CalledProcessError) as e:
+            logger.error("Failed to load Velero CRDs from dry-run install: %s", e)
+            raise VeleroCLIError("Failed to load Velero CRDs from dry-run install") from e
 
     def _create_storage_secret(
         self, kube_client: Client, storage_provider: VeleroStorageProvider
@@ -692,6 +702,21 @@ class Velero:
                 k8s_remove_resource(kube_client, resource, self._namespace)
             except ApiError:
                 pass
+
+    def upgrade(self, kube_client: Client) -> None:
+        """Upgrade Velero deployment.
+
+        Raises:
+            VeleroError: If the upgrade fails.
+        """
+        logger.info("Upgrading Velero CRDs")
+        for crd in self._get_crds():
+            try:
+                kube_client.apply(crd)
+            except ApiError as ae:
+                if ae.status.code != 404:
+                    logger.error("Failed to upgrade Velero CRDs: %s", ae)
+                    raise VeleroError("Failed to upgrade Velero CRDs") from ae
 
     def run_cli_command(self, command: List[str]) -> str:
         """Run a Velero CLI command.
