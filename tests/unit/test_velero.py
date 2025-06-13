@@ -506,23 +506,43 @@ def test_remove_api_error(caplog, mock_lightkube_client, velero, mock_velero_all
 
 @patch("velero.core.subprocess.check_output")
 @patch("velero.core.codecs.load_all_yaml")
-def test_crds_property_success(mock_load_all_yaml, mock_check_output, velero):
-    mock_check_output.return_value = "fake-yaml-output"
+def test_get_crds_success(mock_load_all_yaml, mock_check_output, velero):
+    """Tests that Velero._get_crds returns a list of CustomResourceDefinition objects."""
     mock_load_all_yaml.return_value = [
+        CustomResourceDefinition(metadata=ObjectMeta(name="crd-1"), spec=MagicMock()),
+        CustomResourceDefinition(metadata=ObjectMeta(name="crd-2"), spec=MagicMock()),
+    ]
+    mock_check_output.return_value = "stdout"
+
+    crds = velero._get_crds()
+    assert isinstance(crds[0], CustomResourceDefinition)
+    assert isinstance(crds[1], CustomResourceDefinition)
+    assert crds[0].metadata.name == "crd-1"
+    assert crds[1].metadata.name == "crd-2"
+    assert len(crds) == 2
+
+
+@patch("velero.core.subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "cmd"))
+def test_get_crds_cmd_error(mock_check_output, velero):
+    """Tests that Velero._get_crds raises a VeleroError when the command fails."""
+    with pytest.raises(VeleroError):
+        velero._get_crds()
+
+
+@patch.object(Velero, "_get_crds")
+def test_crds_property_success(mock_get_crds, velero):
+    """Tests that Velero._crds returns a list of K8sResource objects."""
+    mock_get_crds.return_value = [
         CustomResourceDefinition(metadata=ObjectMeta(name="crd-1"), spec=MagicMock()),
         CustomResourceDefinition(metadata=ObjectMeta(name="crd-2"), spec=MagicMock()),
     ]
 
     crds = velero._crds
+    assert isinstance(crds[0], K8sResource)
+    assert isinstance(crds[1], K8sResource)
     assert crds[0].name == "crd-2"
     assert crds[1].name == "crd-1"
     assert len(crds) == 2
-
-
-@patch("velero.core.subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "cmd"))
-def test_crds_property_cmd_error(mock_check_output, velero):
-    with pytest.raises(VeleroError):
-        _ = velero._crds
 
 
 @patch.object(Velero, "_crds", new_callable=PropertyMock)
@@ -870,7 +890,7 @@ def test_update_velero_node_agent_image_success(velero, mock_lightkube_client):
     )
 
 
-def test_update_velero_deployment_image_404_error(caplog, velero, mock_lightkube_client):
+def test_update_velero_deployment_image_404_error(velero, mock_lightkube_client):
     """Check update_velero_deployment_image handles a 404 error gracefully."""
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.json.return_value = {"code": 404, "message": "not found"}
@@ -880,7 +900,7 @@ def test_update_velero_deployment_image_404_error(caplog, velero, mock_lightkube
     assert velero.update_velero_deployment_image(mock_lightkube_client, VELERO_IMAGE) is None
 
 
-def test_update_velero_node_agent_image_404_error(caplog, velero, mock_lightkube_client):
+def test_update_velero_node_agent_image_404_error(velero, mock_lightkube_client):
     """Check update_velero_node_agent_image handles a 404 error gracefully."""
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.json.return_value = {"code": 404, "message": "not found"}
@@ -960,7 +980,7 @@ def test_update_plugin_image_success(velero, mock_lightkube_client):
     )
 
 
-def test_update_plugin_image_404_error(caplog, velero, mock_lightkube_client):
+def test_update_plugin_image_404_error(velero, mock_lightkube_client):
     """Check update_plugin_image handles a 404 error gracefully."""
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.json.return_value = {"code": 404, "message": "not found"}
@@ -979,3 +999,42 @@ def test_update_plugin_image_api_error(velero, mock_lightkube_client):
 
     with pytest.raises(VeleroError):
         velero.update_plugin_image(mock_lightkube_client, VELERO_IMAGE)
+
+
+@patch.object(Velero, "_get_crds")
+def test_upgrade_success(mock_get_crds, mock_lightkube_client, velero):
+    """Check upgrade calls the correct methods."""
+    mock_crd = CustomResourceDefinition(metadata=ObjectMeta(name="crd-1"), spec=MagicMock())
+    mock_get_crds.return_value = [mock_crd]
+
+    assert velero.upgrade(mock_lightkube_client) is None
+    mock_lightkube_client.apply.assert_called_once_with(mock_crd)
+
+
+@patch.object(Velero, "_get_crds")
+def test_upgrade_404_error(mock_get_crds, velero, mock_lightkube_client):
+    """Check upgrade handles a 404 error gracefully."""
+    mock_crd = CustomResourceDefinition(metadata=ObjectMeta(name="crd-1"), spec=MagicMock())
+    mock_get_crds.return_value = [mock_crd]
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 404, "message": "not found"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.apply.side_effect = api_error
+
+    assert velero.upgrade(mock_lightkube_client) is None
+
+
+@patch.object(Velero, "_get_crds")
+def test_upgrade_api_error(mock_get_crds, velero, mock_lightkube_client):
+    """Check upgrade raises a VeleroError when the API call fails."""
+    mock_crd = CustomResourceDefinition(metadata=ObjectMeta(name="crd-1"), spec=MagicMock())
+    mock_get_crds.return_value = [mock_crd]
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 505, "message": "error"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.apply.side_effect = api_error
+
+    with pytest.raises(VeleroError):
+        velero.upgrade(mock_lightkube_client)

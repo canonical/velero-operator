@@ -30,6 +30,7 @@ MANY_RELATIONS_ERROR_MESSAGE = (
 )
 K8S_API_ERROR_MESSAGE = "Failed to access K8s API. See juju debug-log for details."
 INVALID_CONFIG_MESSAGE = "Invalid configuration: "
+UPGRADE_MESSAGE = "Upgrading Velero"
 
 
 @pytest.fixture()
@@ -618,3 +619,19 @@ def test_on_config_changed_error(
     assert state_out.unit_status == testing.BlockedStatus(
         "Failed to update Velero Deployment image. See juju debug-log for details."
     )
+
+
+def test_on_upgrade_charm_success(
+    mock_lightkube_client,
+    mock_velero,
+):
+    """Test that the upgrade_charm event is handled correctly."""
+    # Arrange
+    ctx = testing.Context(VeleroOperatorCharm)
+
+    # Act
+    state_out = ctx.run(ctx.on.upgrade_charm(), testing.State())
+
+    # Assert
+    assert state_out.unit_status == testing.MaintenanceStatus(UPGRADE_MESSAGE)
+    mock_velero.upgrade.assert_called_once_with(mock_lightkube_client)
