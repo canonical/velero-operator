@@ -204,6 +204,9 @@ def k8s_get_pvc_content(pod: Pod, pvc_name: str, test_file: str) -> str:
     if not pod.metadata or not pod.spec:
         raise ValueError("Pod metadata or spec is missing")
 
+    if not pod.status or not pod.status.phase != "Running":
+        raise ValueError(f"Pod {pod.metadata.name} is not in Running state")
+
     volume_name = next(
         (
             v.name
