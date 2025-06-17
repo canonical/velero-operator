@@ -200,14 +200,20 @@ def test_on_install(velero_installed, mock_velero, mock_lightkube_client):
     # Act
     state_out = ctx.run(
         ctx.on.install(),
-        testing.State(config={VELERO_IMAGE_CONFIG_KEY: "image", USE_NODE_AGENT_CONFIG_KEY: False}),
+        testing.State(
+            config={
+                VELERO_IMAGE_CONFIG_KEY: "image",
+                USE_NODE_AGENT_CONFIG_KEY: False,
+                DEFAULT_VOLUMES_TO_FS_BACKUP_CONFIG_KEY: True,
+            }
+        ),
     )
 
     # Assert
     if velero_installed:
         mock_velero.install.assert_not_called()
     else:
-        mock_velero.install.assert_called_once_with(mock_lightkube_client, "image", False)
+        mock_velero.install.assert_called_once_with(mock_lightkube_client, "image", False, True)
     assert state_out.unit_status == testing.BlockedStatus(MISSING_RELATION_MESSAGE)
 
 

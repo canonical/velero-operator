@@ -126,6 +126,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                     self.lightkube_client,
                     self.config.velero_image,
                     self.config.use_node_agent,
+                    self.config.default_volumes_to_fs_backup,
                 )
 
             if isinstance(event, ops.ConfigChangedEvent):
