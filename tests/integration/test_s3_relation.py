@@ -124,12 +124,27 @@ async def test_s3_backup(ops_test: OpsTest, k8s_test_resources, lightkube_client
     test_file = k8s_test_resources["test_file_path"]
     test_pvc_name = k8s_test_resources["pvc_name"]
 
-    for pod in list(
-        lightkube_client.list(Pod, namespace=test_namespace, labels={"pvc": test_pvc_name})
+    logger.info("Waiting for the test namespace to be ready")
+    for attempt in Retrying(
+        stop=stop_after_attempt(10),
+        wait=wait_fixed(3),
+        retry=retry_if_exception_type(AssertionError),
+        reraise=True,
     ):
-        assert (
-            len(k8s_get_pvc_content(pod, test_pvc_name, test_file).splitlines()) == 1
-        ), "PVC content is not as expected, should be 1 line before backup"
+        with attempt:
+            pods = list(
+                lightkube_client.list(Pod, namespace=test_namespace, labels={"pvc": test_pvc_name})
+            )
+            assert len(pods) == 1, "Expected one pod with PVC label"
+
+            logger.info("Checking PVC content before backup")
+            pod_name = pods[0].metadata.name
+            content = k8s_get_pvc_content(
+                lightkube_client, pod_name, test_namespace, test_pvc_name, test_file
+            )
+            assert (
+                len(content.splitlines()) == 1
+            ), "PVC content is not as expected, should be 1 line before backup"
 
     logger.info("Creating a backup")
     # Includes pv to test if the VolumeSnapshotLocation is configured correctly
@@ -168,19 +183,26 @@ async def test_s3_restore(ops_test: OpsTest, k8s_test_resources, lightkube_clien
             lightkube_client, type(resource), name=resource.metadata.name, namespace=test_namespace
         )
 
-    for pod in list(
-        lightkube_client.list(Pod, namespace=test_namespace, labels={"pvc": test_pvc_name})
+    for attempt in Retrying(
+        stop=stop_after_attempt(10),
+        wait=wait_fixed(3),
+        retry=retry_if_exception_type(AssertionError),
+        reraise=True,
     ):
-        for attempt in Retrying(
-            stop=stop_after_attempt(3),
-            wait=wait_fixed(5),
-            retry=retry_if_exception_type(AssertionError),
-        ):
-            with attempt:
-                content = k8s_get_pvc_content(pod, test_pvc_name, test_file)
-                assert (
-                    len(content.splitlines()) == 2
-                ), "PVC content is not as expected, should be 2 lines after restore"
+        with attempt:
+            pods = list(
+                lightkube_client.list(Pod, namespace=test_namespace, labels={"pvc": test_pvc_name})
+            )
+            assert len(pods) == 1, "Expected one pod with PVC label"
+
+            logger.info("Checking PVC content after restore")
+            pod_name = pods[0].metadata.name
+            content = k8s_get_pvc_content(
+                lightkube_client, pod_name, test_namespace, test_pvc_name, test_file
+            )
+            assert (
+                len(content.splitlines()) == 2
+            ), "PVC content is not as expected, should be 2 lines after restore"
 
 
 @pytest.mark.abort_on_fail

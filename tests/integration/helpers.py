@@ -186,11 +186,15 @@ def k8s_delete_and_wait(
 
 
 @retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
-def k8s_get_pvc_content(pod: Pod, pvc_name: str, test_file: str) -> str:
+def k8s_get_pvc_content(
+    client: Client, pod_name: str, namespace: str, pvc_name: str, test_file: str
+) -> str:
     """Get the content of a mounted PVC in a pod.
 
     Args:
-        pod: The pod object.
+        client: The lightkube client to use for the retrieval.
+        pod_name: The name of the pod.
+        namespace: The namespace of the pod.
         pvc_name: The name of the PVC.
         test_file: The path to the test file in the PVC.
 
@@ -201,11 +205,18 @@ def k8s_get_pvc_content(pod: Pod, pvc_name: str, test_file: str) -> str:
     Returns:
         The content of the mounted PVC.
     """
+    pod = client.get(Pod, name=pod_name, namespace=namespace)
+
     if not pod.metadata or not pod.spec:
         raise ValueError("Pod metadata or spec is missing")
 
-    if not pod.status or not pod.status.phase != "Running":
+    if not pod.status or pod.status.phase != "Running":
         raise ValueError(f"Pod {pod.metadata.name} is not in Running state")
+
+    if not pod.status.containerStatuses or not all(
+        container.ready for container in pod.status.containerStatuses
+    ):
+        raise ValueError(f"Pod {pod.metadata.name} has containers not ready")
 
     volume_name = next(
         (
