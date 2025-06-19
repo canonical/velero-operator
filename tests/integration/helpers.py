@@ -1,6 +1,7 @@
 # Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
 
+import subprocess
 from pathlib import Path
 from typing import Type
 
@@ -11,8 +12,17 @@ from juju.unit import Unit
 from lightkube import ApiError, Client
 from lightkube.core.resource import GlobalResource, NamespacedResource
 from lightkube.generic_resource import create_namespaced_resource
+from lightkube.resources.apps_v1 import Deployment
+from lightkube.resources.core_v1 import Pod
 from pytest_operator.plugin import OpsTest
-from tenacity import retry, retry_if_exception_type, stop_after_delay, wait_fixed
+from tenacity import (
+    Retrying,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    stop_after_delay,
+    wait_fixed,
+)
 
 TIMEOUT = 60 * 10
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
@@ -182,6 +192,132 @@ def k8s_delete_and_wait(
     wait_for_deletion()
 
 
+@retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
+def k8s_get_pvc_content(
+    client: Client, pod_name: str, namespace: str, pvc_name: str, test_file: str
+) -> str:
+    """Get the content of a mounted PVC in a pod.
+
+    Args:
+        client: The lightkube client to use for the retrieval.
+        pod_name: The name of the pod.
+        namespace: The namespace of the pod.
+        pvc_name: The name of the PVC.
+        test_file: The path to the test file in the PVC.
+
+    Raises:
+        ValueError: If the pod does not have the PVC mounted or if the mount path is not found.
+        SubprocessError: If the kubectl command fails.
+
+    Returns:
+        The content of the mounted PVC.
+    """
+    pod = client.get(Pod, name=pod_name, namespace=namespace)
+
+    if not pod.metadata or not pod.spec:
+        raise ValueError("Pod metadata or spec is missing")
+
+    if not pod.status or pod.status.phase != "Running":
+        raise ValueError(f"Pod {pod.metadata.name} is not in Running state")
+
+    if not pod.status.containerStatuses or not all(
+        container.ready for container in pod.status.containerStatuses
+    ):
+        raise ValueError(f"Pod {pod.metadata.name} has containers not ready")
+
+    volume_name = next(
+        (
+            v.name
+            for v in pod.spec.volumes or []
+            if v.persistentVolumeClaim and v.persistentVolumeClaim.claimName == pvc_name
+        ),
+        None,
+    )
+    if not volume_name:
+        raise ValueError(f"PVC {pvc_name} not found in pod {pod.metadata.name}")
+
+    for container in pod.spec.containers or []:
+        for mount in container.volumeMounts or []:
+            if mount.name == volume_name:
+                cmd = [
+                    "kubectl",
+                    "exec",
+                    pod.metadata.name,
+                    "-n",
+                    pod.metadata.namespace,
+                    "-c",
+                    container.name,
+                    "--",
+                    "cat",
+                    f"{mount.mountPath}/{test_file}",
+                ]
+                result = subprocess.check_output(cmd, text=True)
+                return result.strip()
+
+    raise ValueError(f"Mount path for PVC {pvc_name} not found in pod {pod.metadata.name}")
+
+
+@retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
+def k8s_get_deployment(
+    client: Client,
+    name: str,
+    namespace: str,
+) -> Deployment:
+    """Get the deployment object.
+
+    Args:
+        client: The lightkube client to use for the retrieval.
+        name: The name of the deployment.
+        namespace: The namespace of the deployment.
+
+    Returns:
+        The deployment object.
+
+    Raises:
+        AssertionError: If the deployment is not found or if there is an API error.
+    """
+    try:
+        return client.get(Deployment, name=name, namespace=namespace)
+    except ApiError as e:
+        if e.status.code == 404:
+            assert False, f"Deployment {name} not found in namespace {namespace}"
+        else:
+            raise
+
+
+def k8s_get_velero_deployment_container_args(
+    client: Client,
+    namespace: str,
+) -> list[str]:
+    """Get the container args of the Velero deployment.
+
+    Args:
+        client: The lightkube client to use for the retrieval.
+        name: The name of the deployment.
+        namespace: The namespace of the deployment.
+
+    Returns:
+        The container args of the Velero deployment.
+
+    Raises:
+        AssertionError: If the deployment is not found or if there is an API error.
+    """
+    deployment = k8s_get_deployment(client, "velero", namespace)
+
+    if not deployment.spec or not deployment.spec.template.spec:
+        assert False, "Deployment spec or template spec is missing"
+
+    container = next(
+        (c for c in deployment.spec.template.spec.containers if c.name == "velero"),
+        None,
+    )
+    if not container or not container.args:
+        assert False, "Container 'velero' not found or args are missing"
+
+    return container.args
+
+
+@retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
 def k8s_get_velero_backup(
     client: Client,
     backup_name: str,
@@ -211,3 +347,36 @@ def k8s_get_velero_backup(
             assert False, f"Backup {backup_name} not found in namespace {namespace}"
         else:
             raise
+
+
+def verify_pvc_content(
+    client: Client, namespace: str, pvc_name: str, file: str, expected_lines: int
+) -> None:
+    """Verify the content of a PVC after a restore operation.
+
+    Args:
+        client: The lightkube client to use for the verification.
+        namespace: The namespace where the PVC is located.
+        pvc_name: The name of the PVC to verify.
+        file: The file within the PVC to check.
+        expected_lines: The expected number of lines in the file.
+
+    Raises:
+        AssertionError: If the PVC content does not match the expected lines.
+    """
+    for attempt in Retrying(
+        stop=stop_after_attempt(10),
+        wait=wait_fixed(3),
+        retry=retry_if_exception_type(AssertionError),
+        reraise=True,
+    ):
+        with attempt:
+            pods = list(client.list(Pod, namespace=namespace, labels={"pvc": pvc_name}))
+            assert len(pods) == 1, "Expected one pod with PVC label"
+            assert pods[0].metadata and pods[0].metadata.name, "Pod metadata is missing"
+
+            pod_name = pods[0].metadata.name
+            content = k8s_get_pvc_content(client, pod_name, namespace, pvc_name, file)
+            assert (
+                len(content.splitlines()) == expected_lines
+            ), f"PVC content is not as expected, should be {expected_lines} lines after restore"

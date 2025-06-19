@@ -5,7 +5,7 @@
 
 import logging
 import subprocess
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 from lightkube import Client, codecs
 from lightkube.core.exceptions import ApiError, LoadResourceError
@@ -410,13 +410,20 @@ class Velero:
 
         logger.info("Velero storage locations configured successfully")
 
-    def install(self, kube_client: Client, velero_image: str, use_node_agent: bool) -> None:
+    def install(
+        self,
+        kube_client: Client,
+        velero_image: str,
+        use_node_agent: bool,
+        default_volumes_to_fs_backup: bool,
+    ) -> None:
         """Install Velero in the Kubernetes cluster.
 
         Args:
             kube_client (Client): The lightkube client used to interact with the cluster.
             velero_image: The Velero image to use.
             use_node_agent: Whether to use the Velero node agent (DaemonSet).
+            default_volumes_to_fs_backup: Whether to default volumes to filesystem backup.
 
         Raises:
             VeleroCLIError: If the CLI installation fails.
@@ -427,6 +434,7 @@ class Velero:
             f"  Image: '{velero_image}'\n"
             f"  Namespace: '{self._namespace}'\n"
             f"  Node-agent enabled: '{use_node_agent}'"
+            f"  Default volumes to filesystem backup: '{default_volumes_to_fs_backup}'\n"
         )
         try:
             logger.info(install_msg)
@@ -437,6 +445,7 @@ class Velero:
                     f"--image={velero_image}",
                     *self._velero_install_flags,
                     f"--use-node-agent={use_node_agent}",
+                    f"--default-volumes-to-fs-backup={default_volumes_to_fs_backup}",
                 ],
                 check=True,
                 capture_output=True,
@@ -507,6 +516,76 @@ class Velero:
             )
         except ApiError as ae:
             raise VeleroError("Failed to remove Velero NodeAgent") from ae
+
+    def update_velero_deployment_flags(
+        self, kube_client: Client, default_volumes_to_fs_backup: bool
+    ) -> None:
+        """Update the Velero Deployment flags.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            default_volumes_to_fs_backup (bool): The new value for the default-volumes-to-fs-backup
+
+        Raises:
+            VeleroError: If the update fails.
+        """
+        flags: Dict[str, Union[str, bool]] = {
+            "default-volumes-to-fs-backup": default_volumes_to_fs_backup,
+        }
+        try:
+            deployment = kube_client.get(
+                Deployment, VELERO_DEPLOYMENT_NAME, namespace=self._namespace
+            )
+            if (
+                not deployment.spec
+                or not deployment.spec.template
+                or not deployment.spec.template.spec
+            ):
+                raise VeleroError("Velero Deployment has no valid spec")
+
+            container = next(
+                (
+                    c
+                    for c in deployment.spec.template.spec.containers
+                    if c.name == VELERO_DEPLOYMENT_NAME
+                ),
+                None,
+            )
+            if not container or not container.args:
+                raise VeleroError("Failed to get Velero Deployment container arguments")
+
+            new_args = [
+                arg
+                for arg in container.args
+                if not any(arg.startswith(f"--{flag}=") for flag in flags.keys())
+            ]
+            new_args += [f"--{flag}={str(value).lower()}" for flag, value in flags.items()]
+
+            new_deployment_spec = {
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {
+                                    "name": VELERO_DEPLOYMENT_NAME,
+                                    "args": new_args,
+                                }
+                            ]
+                        }
+                    },
+                    "strategy": {"type": "Recreate", "rollingUpdate": None},
+                }
+            }
+            kube_client.patch(
+                Deployment,
+                VELERO_DEPLOYMENT_NAME,
+                new_deployment_spec,
+                namespace=self._namespace,
+            )
+        except ApiError as ae:
+            if ae.status.code != 404:
+                logger.error("Failed to update Velero Deployment arguments: %s", ae)
+                raise VeleroError("Failed to update Velero Deployment arguments") from ae
 
     def update_velero_node_agent_image(self, kube_client: Client, new_image: str) -> None:
         """Update the Velero NodeAgent image.

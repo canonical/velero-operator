@@ -126,6 +126,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                     self.lightkube_client,
                     self.config.velero_image,
                     self.config.use_node_agent,
+                    self.config.default_volumes_to_fs_backup,
                 )
 
             if isinstance(event, ops.ConfigChangedEvent):
@@ -254,6 +255,10 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             self.velero.update_velero_node_agent_image(
                 self.lightkube_client, self.config.velero_image
             )
+
+        self.velero.update_velero_deployment_flags(
+            self.lightkube_client, self.config.default_volumes_to_fs_backup
+        )
 
     def _on_upgrade(self, event: ops.UpgradeCharmEvent) -> None:
         """Handle the upgrade-charm event."""

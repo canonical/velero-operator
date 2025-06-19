@@ -20,6 +20,7 @@ from helpers import (
     k8s_delete_and_wait,
     k8s_get_velero_backup,
     run_charm_action,
+    verify_pvc_content,
 )
 from lightkube.resources.core_v1 import Namespace
 from pytest_operator.plugin import OpsTest
@@ -41,7 +42,10 @@ async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info):
 
     await asyncio.gather(
         model.deploy(
-            charm, application_name=APP_NAME, trust=True, config={"use-node-agent": True}
+            charm,
+            application_name=APP_NAME,
+            trust=True,
+            config={"use-node-agent": True, "default-volumes-to-fs-backup": True},
         ),
         model.deploy(S3_INTEGRATOR, channel=S3_INTEGRATOR_CHANNEL),
         model.wait_for_idle(apps=[APP_NAME, S3_INTEGRATOR], status="blocked", timeout=TIMEOUT),
@@ -116,6 +120,11 @@ async def test_s3_backup(ops_test: OpsTest, k8s_test_resources, lightkube_client
     model = get_model(ops_test)
     unit = model.applications[APP_NAME].units[0]
     test_namespace = k8s_test_resources["namespace"].metadata.name
+    test_file = k8s_test_resources["test_file_path"]
+    test_pvc_name = k8s_test_resources["pvc_name"]
+
+    logger.info("Waiting for the test namespace to be ready")
+    verify_pvc_content(lightkube_client, test_namespace, test_pvc_name, test_file, 1)
 
     logger.info("Creating a backup")
     # Includes pv to test if the VolumeSnapshotLocation is configured correctly
@@ -139,6 +148,8 @@ async def test_s3_restore(ops_test: OpsTest, k8s_test_resources, lightkube_clien
     unit = model.applications[APP_NAME].units[0]
     test_resources = k8s_test_resources["resources"]
     test_namespace = k8s_test_resources["namespace"].metadata.name
+    test_file = k8s_test_resources["test_file_path"]
+    test_pvc_name = k8s_test_resources["pvc_name"]
     k8s_delete_and_wait(lightkube_client, Namespace, test_namespace, grace_period=0)
 
     logger.info("Creating a restore")
@@ -151,6 +162,7 @@ async def test_s3_restore(ops_test: OpsTest, k8s_test_resources, lightkube_clien
         k8s_assert_resource_exists(
             lightkube_client, type(resource), name=resource.metadata.name, namespace=test_namespace
         )
+    verify_pvc_content(lightkube_client, test_namespace, test_pvc_name, test_file, 2)
 
 
 @pytest.mark.abort_on_fail
