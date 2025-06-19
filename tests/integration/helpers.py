@@ -15,7 +15,14 @@ from lightkube.generic_resource import create_namespaced_resource
 from lightkube.resources.apps_v1 import Deployment
 from lightkube.resources.core_v1 import Pod
 from pytest_operator.plugin import OpsTest
-from tenacity import retry, retry_if_exception_type, stop_after_delay, wait_fixed
+from tenacity import (
+    Retrying,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    stop_after_delay,
+    wait_fixed,
+)
 
 TIMEOUT = 60 * 10
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
@@ -340,3 +347,36 @@ def k8s_get_velero_backup(
             assert False, f"Backup {backup_name} not found in namespace {namespace}"
         else:
             raise
+
+
+def verify_pvc_content(
+    client: Client, namespace: str, pvc_name: str, file: str, expected_lines: int
+) -> None:
+    """Verify the content of a PVC after a restore operation.
+
+    Args:
+        client: The lightkube client to use for the verification.
+        namespace: The namespace where the PVC is located.
+        pvc_name: The name of the PVC to verify.
+        file: The file within the PVC to check.
+        expected_lines: The expected number of lines in the file.
+
+    Raises:
+        AssertionError: If the PVC content does not match the expected lines.
+    """
+    for attempt in Retrying(
+        stop=stop_after_attempt(10),
+        wait=wait_fixed(3),
+        retry=retry_if_exception_type(AssertionError),
+        reraise=True,
+    ):
+        with attempt:
+            pods = list(client.list(Pod, namespace=namespace, labels={"pvc": pvc_name}))
+            assert len(pods) == 1, "Expected one pod with PVC label"
+            assert pods[0].metadata and pods[0].metadata.name, "Pod metadata is missing"
+
+            pod_name = pods[0].metadata.name
+            content = k8s_get_pvc_content(client, pod_name, namespace, pvc_name, file)
+            assert (
+                len(content.splitlines()) == expected_lines
+            ), f"PVC content is not as expected, should be {expected_lines} lines after restore"
