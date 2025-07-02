@@ -430,14 +430,14 @@ pycparser = "*"
 
 [[package]]
 name = "charmed-kubeflow-chisme"
-version = "0.4.10"
+version = "0.4.11"
 description = "A collection of helpers for Charms maintained by the Charmed Kubeflow team"
 optional = false
 python-versions = ">=3.6"
 groups = ["integration"]
 files = [
-    {file = "charmed_kubeflow_chisme-0.4.10-py3-none-any.whl", hash = "sha256:16a1add849be26110eb67d718812c3abef4fec1189170b0790f26a9b56966be9"},
-    {file = "charmed_kubeflow_chisme-0.4.10.tar.gz", hash = "sha256:8adb7bce725751d21e7bf9cb922065a432f56f706d34581157b11251686e095a"},
+    {file = "charmed_kubeflow_chisme-0.4.11-py3-none-any.whl", hash = "sha256:efddb3aa8284df667dd04a1406a3a4a79b9ec792c66068ca4c53bae4e0c5f2bf"},
+    {file = "charmed_kubeflow_chisme-0.4.11.tar.gz", hash = "sha256:174ce57d00e1f63847f0525b799741513b29931bfc14064f886af64a17ba515f"},
 ]
 
 [package.dependencies]
