@@ -19,7 +19,7 @@ from pytest_operator.plugin import OpsTest
 logger = logging.getLogger(__name__)
 
 GRAFANA_AGENT_APP = "grafana-agent-k8s"
-GRAFANA_AGENT_CHANNEL = "latest/stable"
+GRAFANA_AGENT_CHANNEL = "1/stable"
 METRICS_ENDPOINT = "metrics-endpoint"
 METRICS_PORT = 8085
 METRICS_PATH = "/metrics"
