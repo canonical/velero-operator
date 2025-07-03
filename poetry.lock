@@ -1722,41 +1722,41 @@ importlib-metadata = ">=6.0,<8.7.0"
 
 [[package]]
 name = "ops"
-version = "2.23.0"
+version = "3.0.0"
 description = "The Python library behind great charms"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.10"
 groups = ["main", "integration", "unit"]
 files = [
-    {file = "ops-2.23.0-py3-none-any.whl", hash = "sha256:7a42840410e8570acc3a4b498973a5bcd3fd0b12dd06837f57b9379b3acdfac3"},
-    {file = "ops-2.23.0.tar.gz", hash = "sha256:3e6c29a8f2119c7b8eaa88c82b5371de236dfcb7a7bf0012a6e2a829f0837fb7"},
+    {file = "ops-3.0.0-py3-none-any.whl", hash = "sha256:f71d62c1d5ae58c01acc37fb330c6aa13aa1e2913fc44519b5ac31b93b9181ec"},
+    {file = "ops-3.0.0.tar.gz", hash = "sha256:f4709f7699a2b8b0aaa3a6ad891fb8e4925792121fcb762ef264d24f87675680"},
 ]
 
 [package.dependencies]
 importlib-metadata = "*"
 opentelemetry-api = ">=1.0,<2.0"
-ops-scenario = {version = "7.23.0", optional = true, markers = "extra == \"testing\""}
+ops-scenario = {version = "8.0.0", optional = true, markers = "extra == \"testing\""}
 PyYAML = "==6.*"
 websocket-client = "==1.*"
 
 [package.extras]
-testing = ["ops-scenario (==7.23.0)"]
-tracing = ["ops-tracing (==2.23.0)"]
+testing = ["ops-scenario (==8.0.0)"]
+tracing = ["ops-tracing (==3.0.0)"]
 
 [[package]]
 name = "ops-scenario"
-version = "7.23.0"
+version = "8.0.0"
 description = "Python library providing a state-transition testing API for Operator Framework charms."
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.10"
 groups = ["unit"]
 files = [
-    {file = "ops_scenario-7.23.0-py3-none-any.whl", hash = "sha256:88ddb6b8b41688c580b38fc10dfa3706ab65a481931c26b07a298f2dd82a86ae"},
-    {file = "ops_scenario-7.23.0.tar.gz", hash = "sha256:32a40966a92138779e5f47fff0653037e98e4561fcb30a02014733a88a68c998"},
+    {file = "ops_scenario-8.0.0-py3-none-any.whl", hash = "sha256:5d52e7162cc7cb2a26c8fd62df3f3fb88668a407af4024c1be6003959c80e2de"},
+    {file = "ops_scenario-8.0.0.tar.gz", hash = "sha256:b358228f3c88ab36f93c467e926c2ef20f16a99578a490a9fd9733eb1eab175c"},
 ]
 
 [package.dependencies]
-ops = "2.23.0"
+ops = "3.0.0"
 PyYAML = ">=6.0.1"
 
 [[package]]
@@ -3494,4 +3494,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "46e95bf2f1a4e76f19870d7baa2d6b2b3fa6b31c460e24d03ae3260439750326"
+content-hash = "c656986b4968ba78dfa9e755507a2bbb4a8df9733a3594bd2a0dabd4d87fd23e"
