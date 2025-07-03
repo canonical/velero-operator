@@ -2411,14 +2411,14 @@ testing = ["coverage (>=6.2)", "flaky (>=3.5.0)", "hypothesis (>=5.7.1)", "mypy 
 
 [[package]]
 name = "pytest-operator"
-version = "0.42.0"
-description = "Fixtures for Operators"
+version = "0.43.1"
+description = "Fixtures for Charmed Operators"
 optional = false
-python-versions = "*"
+python-versions = ">=3.8"
 groups = ["integration", "lint"]
 files = [
-    {file = "pytest_operator-0.42.0-py3-none-any.whl", hash = "sha256:29ee3df46b5a47b435f63f7efa2e1433807ba723ac3890f86b88033f79b3e48c"},
-    {file = "pytest_operator-0.42.0.tar.gz", hash = "sha256:389afb648dab91eb8f0e224cbe58f05598e850aafc46e589fce1705577309c69"},
+    {file = "pytest_operator-0.43.1-py3-none-any.whl", hash = "sha256:092e010fef884ea6166c3f71ec4ca717ed9158cf09de67f28e23cfdd780c46fa"},
+    {file = "pytest_operator-0.43.1.tar.gz", hash = "sha256:fd76c7e34c56624176405b47f981de3fe0c3efb71d7875109483cc01f221be99"},
 ]
 
 [package.dependencies]
