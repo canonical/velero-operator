@@ -56,8 +56,8 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional
 
-from ops import EventBase
-from ops.charm import CharmBase
+from ops import EventBase, EventSource, ObjectEvents, RelationBrokenEvent, RelationChangedEvent
+from ops.charm import CharmBase, RelationEvent
 from ops.framework import Object
 
 # The unique Charmhub library identifier, never change it
@@ -110,6 +110,16 @@ class VeleroBackupSpec:
             )
 
 
+class VeleroBackupSpecChangedEvent(RelationEvent):
+    """Emitted when a backup spec is updated or removed."""
+
+
+class VeleroBackupProviderEvents(ObjectEvents):
+    """Defines events for the Velero Backup Config Library."""
+
+    spec_changed = EventSource(VeleroBackupSpecChangedEvent)
+
+
 class VeleroBackupProvider(Object):
     """Provider class for the Velero backup configuration relation."""
 
@@ -120,7 +130,67 @@ class VeleroBackupProvider(Object):
             charm (CharmBase): The charm instance that provides backup configuration.
             relation_name (str): The name of the relation. (from metadata.yaml)
         """
-        pass
+        super().__init__(charm, relation_name)
+        self._charm = charm
+        self._relation_name = relation_name
+
+        self.framework.observe(
+            self._charm.on[self._relation_name].relation_changed, self._on_relation_changed
+        )
+
+        self.framework.observe(
+            self._charm.on[self._relation_name].relation_broken, self._on_relation_broken
+        )
+
+    def _on_relation_changed(self, event: RelationChangedEvent):
+        """Handle the relation-changed event."""
+        self.on.updated.emit(event.relation)
+
+    def _on_relation_broken(self, event: RelationBrokenEvent):
+        """Handle the relation-broken event."""
+        self.on.updated.emit(event.relation)
+
+    def get_backup_spec(self, app_name: str, endpoint: str) -> Optional[VeleroBackupSpec]:
+        """Get a VeleroBackupSpec for a given (app, endpoint).
+
+        Args:
+            app_name (str): The name of the application for which the backup is configured
+            endpoint (str): The name of the relation. (from metadata.yaml)
+
+        Returns:
+            Optional[VeleroBackupSpec]: The backup specification if available, otherwise None.
+        """
+        relations = self.model.relations[self._relation_name]
+
+        for relation in relations:
+            other_app = relation.app
+            if other_app.name != app_name:
+                continue
+
+            relation_endpoint = relation.data[other_app].get(RELATION_FIELD_NAME, None)
+
+            if relation_endpoint and relation_endpoint == endpoint:
+                json_data = relation.data[relation.app].get(SPEC_FIELD_NAME, "{}")
+                dict_data = json.loads(json_data)
+                return VeleroBackupSpec(**dict_data)
+
+        return None
+
+    def get_all_backup_specs(self) -> List[VeleroBackupSpec]:
+        """Get a list of all active VeleroBackupSpec objects across all relations.
+
+        Returns:
+            List[VeleroBackupSpec]: A list of all active backup specifications.
+        """
+        specs = []
+        relations = self.model.relations[self._relation_name]
+
+        for relation in relations:
+            json_data = relation.data[relation.app].get(SPEC_FIELD_NAME, "{}")
+            dict_data = json.loads(json_data)
+            specs.append(VeleroBackupSpec(**dict_data))
+
+        return specs
 
 
 class VeleroBackupRequirer(Object):
