@@ -4,8 +4,10 @@
 
 """The Velero Charm."""
 
+import json
 import logging
 import shlex
+from dataclasses import asdict
 from functools import cached_property
 from typing import Optional, Union
 
@@ -13,6 +15,7 @@ import ops
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.velero_operator.v0.velero_backup_config import VeleroBackupProvider
 from lightkube import ApiError, Client
 from lightkube.resources.rbac_authorization_v1 import ClusterRole
 from pydantic import ValidationError
@@ -76,6 +79,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             ],
         )
 
+        self._backup_configs = VeleroBackupProvider(self, "velero-backups")
+
         self.framework.observe(self.on.install, self._reconcile)
         self.framework.observe(self.on.update_status, self._reconcile)
         self.framework.observe(self.on.config_changed, self._reconcile)
@@ -86,7 +91,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             self.framework.observe(self.on[relation].relation_changed, self._reconcile)
             self.framework.observe(self.on[relation].relation_broken, self._reconcile)
 
-        self.framework.observe(self.on.run_cli_action, self._on_run_action)
+        self.framework.observe(self.on.run_cli_action, self._on_run_cli_action)
+        self.framework.observe(self.on.create_backup_action, self._on_create_backup_action)
 
     # PROPERTIES
 
@@ -162,8 +168,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 ops.BlockedStatus("Failed to access K8s API. See juju debug-log for details.")
             )
 
-    def _on_run_action(self, event: ops.ActionEvent) -> None:
-        """Handle the run action event."""
+    def _on_run_cli_action(self, event: ops.ActionEvent) -> None:
+        """Handle the run-cli action event."""
         command = event.params["command"]
 
         if not self.storage_relation or not self.velero.is_storage_configured(
@@ -190,6 +196,23 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             return
         except ValueError as ve:
             event.fail(f"Invalid command: {ve}")
+            return
+
+    def _on_create_backup_action(self, event: ops.ActionEvent) -> None:
+        """Handle the create-backup action event."""
+        target = event.params["target"]
+
+        try:
+            app, endpoint = target.split(":", 1)
+            backup_spec = self._backup_configs.get_backup_spec(app, endpoint)
+            if not backup_spec:
+                event.fail(f"No backup spec found for target '{target}'")
+                return
+            event.log("Retrieved backup spec")
+            event.log(json.dumps(asdict(backup_spec), indent=2))
+            event.set_results({"status": "success"})
+        except ValueError as ve:
+            event.fail(f"Invalid target format. Use 'app:backup-name': {ve}")
             return
 
     def _configure_storage_locations(self) -> None:

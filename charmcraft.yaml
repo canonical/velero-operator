@@ -72,6 +72,19 @@ actions:
     required:
     - command
     additionalProperties: false
+  create-backup:
+    description: Create a Velero backup using the velero-backups relation.
+    params:
+      target:
+        description: |
+          The target app and the relation to use for creating the backup.
+          Format should be "app:endpoint".
+        type: string
+        examples:
+        - "kubeflow-velero:user-workload-backups"
+    required:
+    - target
+    additionalProperties: false
 
 parts:
   charm:
@@ -102,3 +115,6 @@ requires:
 provides:
   metrics-endpoint:
     interface: prometheus_scrape
+  velero-backups:
+    interface: velero_backup_config
+    optional: true
