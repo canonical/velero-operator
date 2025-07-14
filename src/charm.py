@@ -211,8 +211,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             event.log("Retrieved backup spec")
             event.log(json.dumps(asdict(backup_spec), indent=2))
             event.set_results({"status": "success"})
-        except ValueError as ve:
-            event.fail(f"Invalid target format. Use 'app:backup-name': {ve}")
+        except ValueError:
+            event.fail("Invalid target format. Use 'app:endpoint'")
             return
 
     def _configure_storage_locations(self) -> None:

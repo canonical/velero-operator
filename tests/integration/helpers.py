@@ -35,8 +35,9 @@ MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials]"
 UNTRUST_ERROR_MESSAGE = (
     "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
 )
-APP_BACKUP_RELATION_NAME = "velero-backups"
-TEST_APP_BACKUP_RELATION_NAME = "velero-backup-config"
+APP_RELATION_NAME = "velero-backups"
+TEST_APP_FIRST_RELATION_NAME = "first-velero-backup-config"
+TEST_APP_SECOND_RELATION_NAME = "second-velero-backup-config"
 READY_MESSAGE = "Unit is Ready"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_1 = "Velero Deployment is not ready: ImagePullBackOff"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_2 = "Velero Deployment is not ready: ErrImagePull"

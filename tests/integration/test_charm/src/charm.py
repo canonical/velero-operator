@@ -15,7 +15,8 @@ from charms.velero_operator.v0.velero_backup_config import (
 logger = logging.getLogger(__name__)
 
 
-RELATION_NAME = "velero-backup-config"
+FIRST_RELATION_NAME = "first-velero-backup-config"
+SECOND_RELATION_NAME = "second-velero-backup-config"
 
 
 class TestCharm(ops.CharmBase):
@@ -24,10 +25,10 @@ class TestCharm(ops.CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
 
-        self._config = VeleroBackupRequirer(
+        self._first_config = VeleroBackupRequirer(
             self,
             self.app.name,
-            RELATION_NAME,
+            FIRST_RELATION_NAME,
             spec=VeleroBackupSpec(
                 include_namespaces=["user-namespace", "other-namespace"],
                 include_resources=["deployments", "services"],
@@ -36,22 +37,45 @@ class TestCharm(ops.CharmBase):
             ),
         )
 
+        self._second_config = VeleroBackupRequirer(
+            self,
+            self.app.name,
+            SECOND_RELATION_NAME,
+            spec=VeleroBackupSpec(
+                exclude_namespaces=["excluded-namespace"],
+                exclude_resources=["pods"],
+                label_selector={"tier": "test"},
+                ttl="12h30m",
+                include_cluster_resources=True,
+            ),
+        )
+
         self.framework.observe(self.on.start, self._on_start)
-        self.framework.observe(self.on[RELATION_NAME].relation_joined, self._on_relation_joined)
-        self.framework.observe(self.on[RELATION_NAME].relation_broken, self._on_relation_broken)
+        self.framework.observe(
+            self.on[FIRST_RELATION_NAME].relation_joined, self._on_relation_joined
+        )
+        self.framework.observe(
+            self.on[FIRST_RELATION_NAME].relation_broken, self._on_relation_broken
+        )
+        self.framework.observe(
+            self.on[SECOND_RELATION_NAME].relation_joined, self._on_relation_joined
+        )
+        self.framework.observe(
+            self.on[SECOND_RELATION_NAME].relation_broken, self._on_relation_broken
+        )
 
     def _on_start(self, _) -> None:
         """Handle the start event."""
         self.unit.status = ops.WaitingStatus("Waiting for the relation")
 
-    def _on_relation_joined(self, _: ops.RelationJoinedEvent):
+    def _on_relation_joined(self, event: ops.RelationJoinedEvent):
         """Handle the relation joined event."""
-        logger.info("velero-backup-config joined...")
+        logger.info("%s joined...", event.relation.name)
         self.unit.status = ops.ActiveStatus()
 
-    def _on_relation_broken(self, _: ops.RelationBrokenEvent):
+    def _on_relation_broken(self, event: ops.RelationBrokenEvent):
         """Handle the relation broken event."""
-        logger.info("velero-backup-config relation broken...")
+        logger.info("%s relation broken...", event.relation.name)
         self.unit.status = ops.WaitingStatus("Waiting for the relation")
 
 

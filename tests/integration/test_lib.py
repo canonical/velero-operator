@@ -8,10 +8,11 @@ import logging
 
 import pytest
 from helpers import (
-    APP_BACKUP_RELATION_NAME,
     APP_NAME,
-    TEST_APP_BACKUP_RELATION_NAME,
+    APP_RELATION_NAME,
+    TEST_APP_FIRST_RELATION_NAME,
     TEST_APP_NAME,
+    TEST_APP_SECOND_RELATION_NAME,
     TIMEOUT,
     get_application_data,
     get_model,
@@ -54,34 +55,38 @@ async def test_relate(ops_test: OpsTest):
     logger.info("Relating velero-operator to %s", TEST_APP_NAME)
     model = get_model(ops_test)
 
+    logger.info(
+        "Integrating %s with %s using %s endpoint",
+        APP_NAME,
+        TEST_APP_NAME,
+        TEST_APP_FIRST_RELATION_NAME,
+    )
     await model.integrate(
-        f"{APP_NAME}:{APP_BACKUP_RELATION_NAME}",
-        f"{TEST_APP_NAME}:{TEST_APP_BACKUP_RELATION_NAME}",
+        f"{APP_NAME}:{APP_RELATION_NAME}",
+        f"{TEST_APP_NAME}:{TEST_APP_FIRST_RELATION_NAME}",
     )
     async with ops_test.fast_forward(fast_interval="30s"):
-        await model.block_until(lambda: is_relation_joined(model, TEST_APP_BACKUP_RELATION_NAME))
+        await model.block_until(lambda: is_relation_joined(model, TEST_APP_FIRST_RELATION_NAME))
         await model.wait_for_idle(
             apps=[TEST_APP_NAME],
             status="active",
             timeout=TIMEOUT,
         )
 
-    logger.info("Checking the content of the relation data")
+    logger.info("Checking the content of the first relation data")
     relation_data = await get_relation_data(
-        ops_test, APP_NAME, APP_BACKUP_RELATION_NAME, TEST_APP_BACKUP_RELATION_NAME
+        ops_test, APP_NAME, APP_RELATION_NAME, TEST_APP_FIRST_RELATION_NAME
     )
     application_data = await get_application_data(
-        ops_test, APP_NAME, APP_BACKUP_RELATION_NAME, TEST_APP_BACKUP_RELATION_NAME
+        ops_test, APP_NAME, APP_RELATION_NAME, TEST_APP_FIRST_RELATION_NAME
     )
     logger.info(relation_data)
     logger.info(application_data)
-
     assert "app" in application_data
     assert "relation_name" in application_data
     assert "spec" in application_data
     assert application_data["app"] == TEST_APP_NAME
-    assert application_data["relation_name"] == TEST_APP_BACKUP_RELATION_NAME
-
+    assert application_data["relation_name"] == TEST_APP_FIRST_RELATION_NAME
     spec = json.loads(application_data["spec"])
     assert spec["include_namespaces"] == ["user-namespace", "other-namespace"]
     assert spec["include_resources"] == ["deployments", "services"]
@@ -90,6 +95,47 @@ async def test_relate(ops_test: OpsTest):
     assert spec["exclude_namespaces"] is None
     assert spec["exclude_resources"] is None
     assert spec["include_cluster_resources"] is False
+
+    logger.info(
+        "Integrating %s with %s using %s endpoint",
+        APP_NAME,
+        TEST_APP_NAME,
+        TEST_APP_SECOND_RELATION_NAME,
+    )
+    await model.integrate(
+        f"{APP_NAME}:{APP_RELATION_NAME}",
+        f"{TEST_APP_NAME}:{TEST_APP_SECOND_RELATION_NAME}",
+    )
+    async with ops_test.fast_forward(fast_interval="30s"):
+        await model.block_until(lambda: is_relation_joined(model, TEST_APP_SECOND_RELATION_NAME))
+        await model.wait_for_idle(
+            apps=[TEST_APP_NAME],
+            status="active",
+            timeout=TIMEOUT,
+        )
+
+    logger.info("Checking the content of the second relation data")
+    relation_data = await get_relation_data(
+        ops_test, APP_NAME, APP_RELATION_NAME, TEST_APP_SECOND_RELATION_NAME
+    )
+    application_data = await get_application_data(
+        ops_test, APP_NAME, APP_RELATION_NAME, TEST_APP_SECOND_RELATION_NAME
+    )
+    logger.info(relation_data)
+    logger.info(application_data)
+    assert "app" in application_data
+    assert "relation_name" in application_data
+    assert "spec" in application_data
+    assert application_data["app"] == TEST_APP_NAME
+    assert application_data["relation_name"] == TEST_APP_SECOND_RELATION_NAME
+    spec = json.loads(application_data["spec"])
+    assert spec["include_namespaces"] is None
+    assert spec["include_resources"] is None
+    assert spec["label_selector"] == {"tier": "test"}
+    assert spec["ttl"] == "12h30m"
+    assert spec["exclude_namespaces"] == ["excluded-namespace"]
+    assert spec["exclude_resources"] == ["pods"]
+    assert spec["include_cluster_resources"] is True
 
 
 @pytest.mark.abort_on_fail
@@ -104,17 +150,22 @@ async def test_lib_getters(ops_test: OpsTest):
         await run_charm_action(
             unit,
             "create-backup",
-            target=f"{APP_NAME}:{APP_BACKUP_RELATION_NAME}",
+            target="app:endpoint",
         )
         assert False, "Expected an error when running create-backup with non-existent target"
     except AssertionError:
         pass
 
-    logger.info("Running the create-backup action with the correct target")
+    logger.info("Running the create-backup action with the correct targets")
     await run_charm_action(
         unit,
         "create-backup",
-        target=f"{TEST_APP_NAME}:{TEST_APP_BACKUP_RELATION_NAME}",
+        target=f"{TEST_APP_NAME}:{TEST_APP_FIRST_RELATION_NAME}",
+    )
+    await run_charm_action(
+        unit,
+        "create-backup",
+        target=f"{TEST_APP_NAME}:{TEST_APP_SECOND_RELATION_NAME}",
     )
 
 
@@ -124,10 +175,16 @@ async def test_unrelate(ops_test: OpsTest):
     logger.info("Unrelating velero-operator from %s", TEST_APP_NAME)
     model = get_model(ops_test)
 
-    await ops_test.juju(*["remove-relation", APP_NAME, TEST_APP_NAME])
+    await ops_test.juju(
+        *["remove-relation", APP_NAME, f"{TEST_APP_NAME}:{TEST_APP_FIRST_RELATION_NAME}"]
+    )
+    await ops_test.juju(
+        *["remove-relation", APP_NAME, f"{TEST_APP_NAME}:{TEST_APP_SECOND_RELATION_NAME}"]
+    )
 
     async with ops_test.fast_forward(fast_interval="30s"):
-        await model.block_until(lambda: is_relation_broken(model, TEST_APP_BACKUP_RELATION_NAME))
+        await model.block_until(lambda: is_relation_broken(model, TEST_APP_FIRST_RELATION_NAME))
+        await model.block_until(lambda: is_relation_broken(model, TEST_APP_SECOND_RELATION_NAME))
         await model.wait_for_idle(
             apps=[TEST_APP_NAME],
             status="waiting",

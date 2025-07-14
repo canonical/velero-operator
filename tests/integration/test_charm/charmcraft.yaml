@@ -15,5 +15,7 @@ summary: |
   The charm is only meant to be used for testing of the velero_backup_config lib in this repository.
 
 requires:
-  velero-backup-config:
+  first-velero-backup-config:
+    interface: velero_backup_config
+  second-velero-backup-config:
     interface: velero_backup_config
