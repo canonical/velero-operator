@@ -7,7 +7,7 @@
 import logging
 
 import ops
-from charms.velero_operator.v0.velero_backup_config import (
+from charms.velero_libs.v0.velero_backup_config import (
     VeleroBackupRequirer,
     VeleroBackupSpec,
 )

@@ -55,87 +55,68 @@ async def test_relate(ops_test: OpsTest):
     logger.info("Relating velero-operator to %s", TEST_APP_NAME)
     model = get_model(ops_test)
 
-    logger.info(
-        "Integrating %s with %s using %s endpoint",
-        APP_NAME,
-        TEST_APP_NAME,
+    async def integrate_and_check(endpoint_name: str, expected_spec: dict):
+        logger.info(
+            "Integrating %s with %s using %s endpoint",
+            APP_NAME,
+            TEST_APP_NAME,
+            endpoint_name,
+        )
+        await model.integrate(
+            f"{APP_NAME}:{APP_RELATION_NAME}",
+            f"{TEST_APP_NAME}:{endpoint_name}",
+        )
+        async with ops_test.fast_forward(fast_interval="30s"):
+            await model.block_until(lambda: is_relation_joined(model, endpoint_name))
+            await model.wait_for_idle(
+                apps=[TEST_APP_NAME],
+                status="active",
+                timeout=TIMEOUT,
+            )
+
+        logger.info("Checking the content of the relation data for %s", endpoint_name)
+        relation_data = await get_relation_data(
+            ops_test, APP_NAME, APP_RELATION_NAME, endpoint_name
+        )
+        application_data = await get_application_data(
+            ops_test, APP_NAME, APP_RELATION_NAME, endpoint_name
+        )
+        logger.info(relation_data)
+        logger.info(application_data)
+        assert "app" in application_data
+        assert "relation_name" in application_data
+        assert "spec" in application_data
+        assert application_data["app"] == TEST_APP_NAME
+        assert application_data["relation_name"] == endpoint_name
+        spec = json.loads(application_data["spec"])
+        for key, value in expected_spec.items():
+            assert spec.get(key) == value
+
+    await integrate_and_check(
         TEST_APP_FIRST_RELATION_NAME,
+        {
+            "include_namespaces": ["user-namespace", "other-namespace"],
+            "include_resources": ["deployments", "services"],
+            "label_selector": {"app": "test"},
+            "ttl": "24h5m5s",
+            "exclude_namespaces": None,
+            "exclude_resources": None,
+            "include_cluster_resources": False,
+        },
     )
-    await model.integrate(
-        f"{APP_NAME}:{APP_RELATION_NAME}",
-        f"{TEST_APP_NAME}:{TEST_APP_FIRST_RELATION_NAME}",
-    )
-    async with ops_test.fast_forward(fast_interval="30s"):
-        await model.block_until(lambda: is_relation_joined(model, TEST_APP_FIRST_RELATION_NAME))
-        await model.wait_for_idle(
-            apps=[TEST_APP_NAME],
-            status="active",
-            timeout=TIMEOUT,
-        )
 
-    logger.info("Checking the content of the first relation data")
-    relation_data = await get_relation_data(
-        ops_test, APP_NAME, APP_RELATION_NAME, TEST_APP_FIRST_RELATION_NAME
-    )
-    application_data = await get_application_data(
-        ops_test, APP_NAME, APP_RELATION_NAME, TEST_APP_FIRST_RELATION_NAME
-    )
-    logger.info(relation_data)
-    logger.info(application_data)
-    assert "app" in application_data
-    assert "relation_name" in application_data
-    assert "spec" in application_data
-    assert application_data["app"] == TEST_APP_NAME
-    assert application_data["relation_name"] == TEST_APP_FIRST_RELATION_NAME
-    spec = json.loads(application_data["spec"])
-    assert spec["include_namespaces"] == ["user-namespace", "other-namespace"]
-    assert spec["include_resources"] == ["deployments", "services"]
-    assert spec["label_selector"] == {"app": "test"}
-    assert spec["ttl"] == "24h5m5s"
-    assert spec["exclude_namespaces"] is None
-    assert spec["exclude_resources"] is None
-    assert spec["include_cluster_resources"] is False
-
-    logger.info(
-        "Integrating %s with %s using %s endpoint",
-        APP_NAME,
-        TEST_APP_NAME,
+    await integrate_and_check(
         TEST_APP_SECOND_RELATION_NAME,
+        {
+            "include_namespaces": None,
+            "include_resources": None,
+            "label_selector": {"tier": "test"},
+            "ttl": "12h30m",
+            "exclude_namespaces": ["excluded-namespace"],
+            "exclude_resources": ["pods"],
+            "include_cluster_resources": True,
+        },
     )
-    await model.integrate(
-        f"{APP_NAME}:{APP_RELATION_NAME}",
-        f"{TEST_APP_NAME}:{TEST_APP_SECOND_RELATION_NAME}",
-    )
-    async with ops_test.fast_forward(fast_interval="30s"):
-        await model.block_until(lambda: is_relation_joined(model, TEST_APP_SECOND_RELATION_NAME))
-        await model.wait_for_idle(
-            apps=[TEST_APP_NAME],
-            status="active",
-            timeout=TIMEOUT,
-        )
-
-    logger.info("Checking the content of the second relation data")
-    relation_data = await get_relation_data(
-        ops_test, APP_NAME, APP_RELATION_NAME, TEST_APP_SECOND_RELATION_NAME
-    )
-    application_data = await get_application_data(
-        ops_test, APP_NAME, APP_RELATION_NAME, TEST_APP_SECOND_RELATION_NAME
-    )
-    logger.info(relation_data)
-    logger.info(application_data)
-    assert "app" in application_data
-    assert "relation_name" in application_data
-    assert "spec" in application_data
-    assert application_data["app"] == TEST_APP_NAME
-    assert application_data["relation_name"] == TEST_APP_SECOND_RELATION_NAME
-    spec = json.loads(application_data["spec"])
-    assert spec["include_namespaces"] is None
-    assert spec["include_resources"] is None
-    assert spec["label_selector"] == {"tier": "test"}
-    assert spec["ttl"] == "12h30m"
-    assert spec["exclude_namespaces"] == ["excluded-namespace"]
-    assert spec["exclude_resources"] == ["pods"]
-    assert spec["include_cluster_resources"] is True
 
 
 @pytest.mark.abort_on_fail

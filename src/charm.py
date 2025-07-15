@@ -4,10 +4,8 @@
 
 """The Velero Charm."""
 
-import json
 import logging
 import shlex
-from dataclasses import asdict
 from functools import cached_property
 from typing import Optional, Union
 
@@ -15,7 +13,7 @@ import ops
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.velero_operator.v0.velero_backup_config import VeleroBackupProvider
+from charms.velero_libs.v0.velero_backup_config import VeleroBackupProvider
 from lightkube import ApiError, Client
 from lightkube.resources.rbac_authorization_v1 import ClusterRole
 from pydantic import ValidationError
@@ -200,20 +198,22 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
     def _on_create_backup_action(self, event: ops.ActionEvent) -> None:
         """Handle the create-backup action event."""
+        # TODO: Implement the logic to create a backup, placeholder for testing the library
         target = event.params["target"]
 
         try:
             app, endpoint = target.split(":", 1)
-            backup_spec = self._backup_configs.get_backup_spec(app, endpoint)
-            if not backup_spec:
-                event.fail(f"No backup spec found for target '{target}'")
-                return
-            event.log("Retrieved backup spec")
-            event.log(json.dumps(asdict(backup_spec), indent=2))
-            event.set_results({"status": "success"})
         except ValueError:
             event.fail("Invalid target format. Use 'app:endpoint'")
             return
+
+        backup_spec = self._backup_configs.get_backup_spec(app, endpoint)
+        if not backup_spec:
+            event.fail(f"No backup spec found for target '{target}'")
+            return
+        event.log("Retrieved backup spec")
+        event.log(backup_spec.model_dump_json(indent=2))
+        event.set_results({"status": "success"})
 
     def _configure_storage_locations(self) -> None:
         """Configure the Velero storage locations.

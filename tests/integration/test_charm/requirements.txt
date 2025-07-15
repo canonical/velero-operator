@@ -1,1 +1,2 @@
-ops==3.0.0 ; python_version >= "3.12" and python_version < "4.0"
+ops
+pydantic

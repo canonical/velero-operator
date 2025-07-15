@@ -50,15 +50,14 @@ class SomeCharm(CharmBase):
 ```
 """
 
-import json
 import logging
 import re
-from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional
 
 from ops import EventBase, EventSource, ObjectEvents, RelationBrokenEvent, RelationChangedEvent
 from ops.charm import CharmBase, RelationEvent
 from ops.framework import Object
+from pydantic import BaseModel
 
 # The unique Charmhub library identifier, never change it
 LIBID = "3fcd828c77024b0f9a7ea3544805456b"
@@ -73,15 +72,14 @@ LIBPATCH = 1
 # Regex to check if the provided TTL is a correct duration
 DURATION_REGEX = r"^(?=.*\d)(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$"
 
-SPEC_FIELD_NAME = "spec"
-APP_FIELD_NAME = "app"
-RELATION_FIELD_NAME = "relation_name"
+SPEC_FIELD = "spec"
+APP_FIELD = "app"
+RELATION_FIELD = "relation_name"
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class VeleroBackupSpec:
+class VeleroBackupSpec(BaseModel):
     """Dataclass representing the Velero backup configuration.
 
     Args:
@@ -165,17 +163,17 @@ class VeleroBackupProvider(Object):
         relations = self.model.relations[self._relation_name]
 
         for relation in relations:
-            other_app = relation.app
-            if other_app.name != app_name:
+            related_app = relation.app
+            if related_app.name != app_name:
                 continue
 
-            relation_endpoint = relation.data[other_app].get(RELATION_FIELD_NAME, None)
+            related_app_endpoint = relation.data[related_app].get(RELATION_FIELD, None)
 
-            if relation_endpoint and relation_endpoint == endpoint:
-                json_data = relation.data[relation.app].get(SPEC_FIELD_NAME, "{}")
-                dict_data = json.loads(json_data)
-                return VeleroBackupSpec(**dict_data)
+            if related_app_endpoint and related_app_endpoint == endpoint:
+                json_data = relation.data[relation.app].get(SPEC_FIELD, "{}")
+                return VeleroBackupSpec.model_validate_json(json_data)
 
+        logger.warning("No backup spec found for app '%s' and endpoint '%s'", app_name, endpoint)
         return None
 
     def get_all_backup_specs(self) -> List[VeleroBackupSpec]:
@@ -188,9 +186,8 @@ class VeleroBackupProvider(Object):
         relations = self.model.relations[self._relation_name]
 
         for relation in relations:
-            json_data = relation.data[relation.app].get(SPEC_FIELD_NAME, "{}")
-            dict_data = json.loads(json_data)
-            specs.append(VeleroBackupSpec(**dict_data))
+            json_data = relation.data[relation.app].get(SPEC_FIELD, "{}")
+            specs.append(VeleroBackupSpec.model_validate_json(json_data))
 
         return specs
 
@@ -239,17 +236,11 @@ class VeleroBackupRequirer(Object):
                 self._relation_name,
             )
             return
-
         for relation in relations:
             relation.data[self._charm.app].update(
                 {
-                    APP_FIELD_NAME: self._app_name,
-                    RELATION_FIELD_NAME: self._relation_name,
-                    SPEC_FIELD_NAME: backup_spec_to_json(self._spec),
+                    APP_FIELD: self._app_name,
+                    RELATION_FIELD: self._relation_name,
+                    SPEC_FIELD: self._spec.model_dump_json(),
                 }
             )
-
-
-def backup_spec_to_json(spec: VeleroBackupSpec) -> str:
-    """Return VeleroBackupSpec as a JSON string."""
-    return json.dumps(asdict(spec))
