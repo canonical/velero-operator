@@ -54,8 +54,8 @@ import logging
 import re
 from typing import Dict, List, Optional
 
-from ops import EventBase, EventSource, ObjectEvents, RelationBrokenEvent, RelationChangedEvent
-from ops.charm import CharmBase, RelationEvent
+from ops import EventBase
+from ops.charm import CharmBase
 from ops.framework import Object
 from pydantic import BaseModel
 
@@ -108,20 +108,8 @@ class VeleroBackupSpec(BaseModel):
             )
 
 
-class VeleroBackupSpecChangedEvent(RelationEvent):
-    """Emitted when a backup spec is updated or removed."""
-
-
-class VeleroBackupProviderEvents(ObjectEvents):
-    """Defines events for the Velero Backup Config Library."""
-
-    spec_changed = EventSource(VeleroBackupSpecChangedEvent)
-
-
 class VeleroBackupProvider(Object):
     """Provider class for the Velero backup configuration relation."""
-
-    on = VeleroBackupProviderEvents()  # type: ignore
 
     def __init__(self, charm: CharmBase, relation_name: str):
         """Initialize the provider and binds to relation events.
@@ -133,22 +121,6 @@ class VeleroBackupProvider(Object):
         super().__init__(charm, relation_name)
         self._charm = charm
         self._relation_name = relation_name
-
-        self.framework.observe(
-            self._charm.on[self._relation_name].relation_changed, self._on_relation_changed
-        )
-
-        self.framework.observe(
-            self._charm.on[self._relation_name].relation_broken, self._on_relation_broken
-        )
-
-    def _on_relation_changed(self, event: RelationChangedEvent):
-        """Handle the relation-changed event."""
-        self.on.spec_changed.emit(event.relation)
-
-    def _on_relation_broken(self, event: RelationBrokenEvent):
-        """Handle the relation-broken event."""
-        self.on.spec_changed.emit(event.relation)
 
     def get_backup_spec(self, app_name: str, endpoint: str) -> Optional[VeleroBackupSpec]:
         """Get a VeleroBackupSpec for a given (app, endpoint).
