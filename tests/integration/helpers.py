@@ -3,7 +3,7 @@
 
 import subprocess
 from pathlib import Path
-from typing import Type
+from typing import Dict, Optional, Type
 
 import yaml
 from juju.application import Application
@@ -25,12 +25,19 @@ from tenacity import (
 )
 
 TIMEOUT = 60 * 10
-METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
-APP_NAME = METADATA["name"]
+CHARM_METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
+TEST_CHARM_METADATA = yaml.safe_load(
+    Path("tests/integration/test_charm/charmcraft.yaml").read_text()
+)
+APP_NAME = CHARM_METADATA["name"]
+TEST_APP_NAME = TEST_CHARM_METADATA["name"]
 MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials]"
 UNTRUST_ERROR_MESSAGE = (
     "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
 )
+APP_RELATION_NAME = "velero-backups"
+TEST_APP_FIRST_RELATION_NAME = "first-velero-backup-config"
+TEST_APP_SECOND_RELATION_NAME = "second-velero-backup-config"
 READY_MESSAGE = "Unit is Ready"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_1 = "Velero Deployment is not ready: ImagePullBackOff"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_2 = "Velero Deployment is not ready: ErrImagePull"
@@ -322,7 +329,7 @@ def k8s_get_velero_backup(
     client: Client,
     backup_name: str,
     namespace: str,
-) -> dict:
+) -> Dict:
     """Get the Velero backup object.
 
     Args:
@@ -380,3 +387,94 @@ def verify_pvc_content(
             assert (
                 len(content.splitlines()) == expected_lines
             ), f"PVC content is not as expected, should be {expected_lines} lines after restore"
+
+
+def is_relation_joined(model: Model, endpoint: str) -> bool:
+    """Check if a relation is joined.
+
+    Args:
+        model: The Juju model to check.
+        endpoint: The name of the relation endpoint to check.
+    """
+    for rel in model.relations:
+        endpoints = [endpoint.name for endpoint in rel.endpoints]
+        if endpoint in endpoints:
+            return True
+    return False
+
+
+def is_relation_broken(model: Model, endpoint: str) -> bool:
+    """Check if a relation is broken.
+
+    Args:
+        model: The Juju model to check.
+        endpoint: The name of the relation endpoint to check.
+    """
+    for rel in model.relations:
+        endpoints = [endpoint.name for endpoint in rel.endpoints]
+        if endpoint in endpoints:
+            return False
+    return True
+
+
+async def get_relation_data(
+    ops_test: OpsTest,
+    application_name: str,
+    endpoint: str,
+    related_endpoint: Optional[str] = None,
+) -> list:
+    """Return a list that contains the relation-data.
+
+    Args:
+        ops_test: The ops test framework instance
+        application_name: The name of the application
+        endpoint: The name of the relation endpoint
+        related_endpoint: The name of the related endpoint (optional)
+
+    Returns:
+        A list of relation data dictionaries.
+    """
+    model = get_model(ops_test)
+
+    units_ids = [
+        app_unit.name.split("/")[1] for app_unit in model.applications[application_name].units
+    ]
+    assert len(units_ids) > 0
+    unit_name = f"{application_name}/{units_ids[0]}"
+    raw_data = (await ops_test.juju("show-unit", unit_name))[1]
+
+    if not raw_data:
+        raise ValueError(f"No data found for unit {unit_name}")
+
+    data = yaml.safe_load(raw_data)
+    relation_data = [v for v in data[unit_name]["relation-info"] if v["endpoint"] == endpoint]
+
+    if len(relation_data) == 0:
+        raise ValueError(f"No data found for relation {endpoint}")
+
+    if related_endpoint:
+        relation_data = [v for v in relation_data if v["related-endpoint"] == related_endpoint]
+
+    return relation_data
+
+
+async def get_application_data(
+    ops_test: OpsTest,
+    application_name: str,
+    endpoint: str,
+    related_endpoint: Optional[str] = None,
+) -> Dict:
+    """Return the application data bag of a given application and relation.
+
+    Args:
+        ops_test: The ops test framework instance
+        application_name: The name of the application
+        endpoint: The name of the relation endpoint
+        related_endpoint: The name of the related endpoint (optional)
+
+    Returns:
+        Application data bag as a dictionary.
+    """
+    relation_data = await get_relation_data(ops_test, application_name, endpoint, related_endpoint)
+    application_data = relation_data[0]["application-data"]
+    return application_data
