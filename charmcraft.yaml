@@ -85,6 +85,38 @@ actions:
     required:
     - target
     additionalProperties: false
+  list-backups:
+    description: List all Velero backups using the velero-backups relation.
+    params:
+      target:
+        description: |
+          Optional target app and the relation to use for listing backups.
+          If not provided, it will list all backups across all relations.
+          Format should be "app:endpoint".
+        type: string
+        examples:
+        - "kubeflow-velero:user-workload-backups"
+    additionalProperties: false
+  restore:
+    description: Restore a Velero backup using the velero-backups relation.
+    params:
+      backup-id:
+        description: |
+          The ID of the backup to use, can be retrieved by running the `list-backups` action.
+        type: string
+        examples:
+        - "my-backup-1234"
+      existing-resource-policy:
+        description: |
+          Restore Policy to be used during the restore workflow, can be - `none` or `update`
+        type: string
+        default: "none"
+        examples:
+        - "none"
+        - "update"
+    required:
+    - backup-id
+    additionalProperties: false
 
 parts:
   charm:
