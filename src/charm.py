@@ -91,6 +91,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
         self.framework.observe(self.on.run_cli_action, self._on_run_cli_action)
         self.framework.observe(self.on.create_backup_action, self._on_create_backup_action)
+        self.framework.observe(self.on.list_backups_action, self.on_list_backups_action)
+        self.framework.observe(self.on.restore_action, self.on_restore_action)
 
     # PROPERTIES
 
@@ -214,6 +216,14 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         event.log("Retrieved backup spec")
         event.log(backup_spec.model_dump_json(indent=2))
         event.set_results({"status": "success"})
+
+    def on_list_backups_action(self, event: ops.ActionEvent) -> None:
+        """Handle the list-backups action event."""
+        pass
+
+    def on_restore_action(self, event: ops.ActionEvent) -> None:
+        """Handle the restore action event."""
+        pass
 
     def _configure_storage_locations(self) -> None:
         """Configure the Velero storage locations.
