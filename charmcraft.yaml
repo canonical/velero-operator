@@ -117,12 +117,15 @@ actions:
         description: |
           Restore Policy to be used during the restore workflow, can be - `none` or `update`
         type: string
+        enum:
+        - "none"
+        - "update"
         default: "none"
         examples:
         - "none"
         - "update"
     required:
-    - backup-id
+    - backup-name
     additionalProperties: false
 
 parts:
