@@ -242,7 +242,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 },
             )
             event.log(f"Backup '{backup_name}' created successfully.")
-            event.set_results({"status": "success", "name": backup_name})
+            event.set_results({"status": "success", "backup-name": backup_name})
         except (VeleroError, ApiError) as e:
             event.fail("%s" % e)
             return
@@ -283,10 +283,10 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
     def on_restore_action(self, event: ops.ActionEvent) -> None:
         """Handle the restore action event."""
-        backup_name = event.params["backup_name"]
-        existing_resource_policy = ExistingResourcePolicy[
-            event.params.get("existing_resource_policy", "none")
-        ]
+        backup_name = event.params["backup-name"]
+        existing_resource_policy = ExistingResourcePolicy(
+            event.params.get("existing-resource-policy", "none")
+        )
         check_message = (
             "You may check for more information using "
             "`run-cli command='restore describe {restore_name}'` "
@@ -312,7 +312,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                     "app.kubernetes.io/managed-by": "velero-operator",
                 },
             )
-            event.set_results({"status": "success", "restoreName": restore_name})
+            event.set_results({"status": "success", "restore-name": restore_name})
         except (VeleroError, ApiError) as e:
             event.fail("%s" % e)
             return

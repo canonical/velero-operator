@@ -856,6 +856,12 @@ class Velero:
                 existingResourcePolicy=existing_resource_policy,
             ),
         )
+        logger.info("Checking if Velero Backup '%s' exists", backup_name)
+        try:
+            kube_client.get(Backup, name=backup_name, namespace=self._namespace)
+        except ApiError as ae:
+            logger.error("Velero Backup '%s' not found", backup_name)
+            raise VeleroError(f"Velero Backup '{backup_name}' not found") from ae
 
         logger.info("Creating Velero Restore '%s' from Backup '%s'", restore_name, backup_name)
         try:
