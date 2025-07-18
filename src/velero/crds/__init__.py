@@ -3,10 +3,26 @@
 
 """Velero CRDs module."""
 
-from .backup import Backup
-from .restore import Restore
+from .backup import Backup, BackupModel, BackupSpecModel, BackupStatus, BackupStatusModel
+from .restore import (
+    ExistingResourcePolicy,
+    Restore,
+    RestoreModel,
+    RestoreSpecModel,
+    RestoreStatus,
+    RestoreStatusModel,
+)
 
 __all__ = [
     "Backup",
     "Restore",
+    "ExistingResourcePolicy",
+    "BackupSpecModel",
+    "BackupStatusModel",
+    "BackupModel",
+    "BackupStatus",
+    "RestoreSpecModel",
+    "RestoreStatusModel",
+    "RestoreModel",
+    "RestoreStatus",
 ]

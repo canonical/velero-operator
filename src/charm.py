@@ -6,6 +6,7 @@
 
 import logging
 import shlex
+import time
 from functools import cached_property
 from typing import Optional, Union
 
@@ -28,6 +29,7 @@ from constants import (
     StorageRelation,
 )
 from velero import (
+    ExistingResourcePolicy,
     S3StorageProvider,
     StorageProviderError,
     Velero,
@@ -200,8 +202,18 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
     def _on_create_backup_action(self, event: ops.ActionEvent) -> None:
         """Handle the create-backup action event."""
-        # TODO: Implement the logic to create a backup, placeholder for testing the library
         target = event.params["target"]
+        check_message = (
+            "You may check for more information using "
+            "`run-cli command='backup describe {backup_name}'` "
+            "and `run-cli command='backup logs {backup_name}'`"
+        )
+
+        if not self.storage_relation or not self.velero.is_storage_configured(
+            self.lightkube_client
+        ):
+            event.fail("Velero Storage Provider is not configured")
+            return
 
         try:
             app, endpoint = target.split(":", 1)
@@ -213,17 +225,97 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         if not backup_spec:
             event.fail(f"No backup spec found for target '{target}'")
             return
-        event.log("Retrieved backup spec")
-        event.log(backup_spec.model_dump_json(indent=2))
-        event.set_results({"status": "success"})
+
+        event.log("Creating a backup...")
+        try:
+            backup_name = f"{app}-{endpoint}-{round(time.time())}"
+            event.log(check_message.format(backup_name=backup_name))
+            self.velero.create_backup(
+                self.lightkube_client,
+                backup_name,
+                backup_spec,
+                self.config.default_volumes_to_fs_backup,
+                labels={
+                    "app": app,
+                    "endpoint": endpoint,
+                    "app.kubernetes.io/managed-by": "velero-operator",
+                },
+            )
+            event.log(f"Backup '{backup_name}' created successfully.")
+            event.set_results({"status": "success", "name": backup_name})
+        except (VeleroError, ApiError) as e:
+            event.fail("%s" % e)
+            return
 
     def on_list_backups_action(self, event: ops.ActionEvent) -> None:
         """Handle the list-backups action event."""
-        pass
+        app = event.params.get("app", None)
+        endpoint = event.params.get("endpoint", None)
+
+        if not self.storage_relation or not self.velero.is_storage_configured(
+            self.lightkube_client
+        ):
+            event.fail("Velero Storage Provider is not configured")
+            return
+
+        if app is None and endpoint is not None:
+            event.fail("If 'endpoint' is provided, 'app' must also be provided")
+            return
+
+        event.log("Listing backups...")
+        try:
+            backups = self.velero.get_backups(
+                self.lightkube_client, labels={"app": app, "endpoint": endpoint}
+            )
+            backups_info = {}
+            for backup in backups:
+                backups_info[backup.metadata.name] = {  # type: ignore
+                    "app": backup.metadata.labels["app"],  # type: ignore
+                    "endpoint": backup.metadata.labels["endpoint"],  # type: ignore
+                    "phase": backup.status.phase,  # type: ignore
+                    "startTimestamp": backup.status.startTimestamp,  # type: ignore
+                    "completionTimestamp": backup.status.completionTimestamp,  # type: ignore
+                }
+            event.set_results({"status": "success", "backups": backups_info})
+        except (VeleroError, ApiError) as e:
+            event.fail("%s" % e)
+            return
 
     def on_restore_action(self, event: ops.ActionEvent) -> None:
         """Handle the restore action event."""
-        pass
+        backup_name = event.params["backup_name"]
+        existing_resource_policy = ExistingResourcePolicy[
+            event.params.get("existing_resource_policy", "none")
+        ]
+        check_message = (
+            "You may check for more information using "
+            "`run-cli command='restore describe {restore_name}'` "
+            "and `run-cli command='restore logs {restore_name}'`"
+        )
+
+        if not self.storage_relation or not self.velero.is_storage_configured(
+            self.lightkube_client
+        ):
+            event.fail("Velero Storage Provider is not configured")
+            return
+
+        event.log("Creating a restore...")
+        try:
+            restore_name = f"{backup_name}-{round(time.time())}"
+            event.log(check_message.format(restore_name=restore_name))
+            self.velero.create_restore(
+                self.lightkube_client,
+                restore_name,
+                backup_name,
+                existing_resource_policy,
+                labels={
+                    "app.kubernetes.io/managed-by": "velero-operator",
+                },
+            )
+            event.set_results({"status": "success", "restoreName": restore_name})
+        except (VeleroError, ApiError) as e:
+            event.fail("%s" % e)
+            return
 
     def _configure_storage_locations(self) -> None:
         """Configure the Velero storage locations.

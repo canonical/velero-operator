@@ -13,6 +13,10 @@ K8S_CHECK_ATTEMPTS = 15
 K8S_CHECK_DELAY = 2
 K8S_CHECK_OBSERVATIONS = 5
 
+K8S_CHECK_VELERO_ATTEMPTS = 60
+K8S_CHECK_VELERO_DELAY = 5
+K8S_CHECK_VELERO_OBSERVATIONS = 3
+
 VELERO_METRICS_PORT = 8085
 VELERO_METRICS_SERVICE_NAME = "velero-metrics"
 VELERO_METRICS_PATH = "/metrics"
@@ -34,6 +38,7 @@ VELERO_BACKUP_LOCATION_RESOURCE = create_namespaced_resource(
 VELERO_VOLUME_SNAPSHOT_LOCATION_RESOURCE = create_namespaced_resource(
     "velero.io", "v1", "VolumeSnapshotLocation", "volumesnapshotlocations"
 )
+VELERO_BACKUP_RESOURCE = create_namespaced_resource("velero.io", "v1", "Backup", "backups")
 
 
 class StorageRelation(str, Enum):

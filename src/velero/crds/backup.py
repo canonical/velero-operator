@@ -18,6 +18,8 @@ from lightkube.models import meta_v1
 class BackupSpecModel(DictMixin):
     """Backup specification model."""
 
+    storageLocation: str
+    volumeSnapshotLocations: Optional[List[str]] = None
     includedNamespaces: Optional[List[str]] = None
     excludedNamespaces: Optional[List[str]] = None
     includedResources: Optional[List[str]] = None
@@ -25,7 +27,6 @@ class BackupSpecModel(DictMixin):
     orderedResources: Optional[Dict[str, str]] = None
     includeClusterResources: Optional[bool] = None
     labelSelector: Optional[Dict[str, Dict[str, str]]] = None
-    orLabelSelectors: Optional[List[Dict[str, Dict[str, str]]]] = None
     ttl: Optional[str] = None
     defaultVolumesToFsBackup: Optional[bool] = None
 

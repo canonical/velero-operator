@@ -6,6 +6,7 @@
 Reference: https://velero.io/docs/v1.16/api-types/restore
 """
 
+from enum import Enum
 from typing import ClassVar, List, Optional
 
 from lightkube.codecs import resource_registry
@@ -14,13 +15,20 @@ from lightkube.core.schema import DictMixin, dataclass
 from lightkube.models import meta_v1
 
 
+class ExistingResourcePolicy(str, Enum):
+    """Storage provider enum."""
+
+    No = "none"
+    Update = "update"
+
+
 @dataclass
 class RestoreSpecModel(DictMixin):
     """Restore specification model."""
 
     backupName: str
     restorePVs: Optional[bool] = None
-    existingResourcePolicy: Optional[str] = None
+    existingResourcePolicy: Optional[ExistingResourcePolicy] = None
 
 
 @dataclass
