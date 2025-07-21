@@ -1059,15 +1059,22 @@ class Velero:
             if not backup.status or not backup.status.phase:
                 raise VeleroBackupStatusError(name=name, reason="No status or phase present")
 
-            if backup.status.phase != "Completed":
+            if backup.status.phase == "Completed":
+                return
+
+            if backup.status.phase in ["PartiallyFailed", "Failed"]:
                 raise VeleroBackupStatusError(
                     name=name, reason=f"Status is '{backup.status.phase}'"
+                )
+            else:
+                raise VeleroStatusError(
+                    f"Velero Backup is still in progress: '{backup.status.phase}'"
                 )
 
         logger.info("Checking the Velero Backup completeness")
         k8s_retry_check(
             check_backup,
-            retry_exceptions=(VeleroBackupStatusError, ApiError),
+            retry_exceptions=(VeleroStatusError, ApiError),
             attempts=K8S_CHECK_VELERO_ATTEMPTS,
             delay=K8S_CHECK_VELERO_DELAY,
             min_successful=K8S_CHECK_VELERO_OBSERVATIONS,
@@ -1092,15 +1099,21 @@ class Velero:
             if not restore.status or not restore.status.phase:
                 raise VeleroRestoreStatusError(name=name, reason="No status or phase present")
 
-            if restore.status.phase != "Completed":
+            if restore.status.phase == "Completed":
+                return
+            if restore.status.phase in ["PartiallyFailed", "Failed"]:
                 raise VeleroRestoreStatusError(
                     name=name, reason=f"Status is '{restore.status.phase}'"
+                )
+            else:
+                raise VeleroStatusError(
+                    f"Velero Restore is still in progress: '{restore.status.phase}'"
                 )
 
         logger.info("Checking the Velero Restore completeness")
         k8s_retry_check(
             check_restore,
-            retry_exceptions=(VeleroRestoreStatusError, ApiError),
+            retry_exceptions=(VeleroStatusError, ApiError),
             attempts=K8S_CHECK_VELERO_ATTEMPTS,
             delay=K8S_CHECK_VELERO_DELAY,
             min_successful=K8S_CHECK_VELERO_OBSERVATIONS,

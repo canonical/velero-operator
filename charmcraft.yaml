@@ -125,7 +125,7 @@ actions:
         - "none"
         - "update"
     required:
-    - backup-name
+    - backup-uid
     additionalProperties: false
 
 parts:

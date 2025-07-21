@@ -25,7 +25,13 @@ from constants import (
     VELERO_VOLUME_SNAPSHOT_LOCATION_NAME,
 )
 from k8s_utils import K8sResource
-from velero import Velero, VeleroBackupStatusError, VeleroError, VeleroRestoreStatusError
+from velero import (
+    Velero,
+    VeleroBackupStatusError,
+    VeleroError,
+    VeleroRestoreStatusError,
+    VeleroStatusError,
+)
 
 NAMESPACE = "test-namespace"
 VELERO_IMAGE = "velero/velero:latest"
@@ -1195,16 +1201,27 @@ def test_check_velero_backup_success(mock_lightkube_client):
     assert Velero.check_velero_backup(mock_lightkube_client, "velero", "backup") is None
 
 
-def test_check_velero_backup_not_completed(mock_lightkube_client):
-    """Check check_velero_backup raises VeleroBackupStatusError when backup is not completed."""
+def test_check_velero_backup_in_progress(mock_lightkube_client):
+    """Check check_velero_backup raises VeleroStatusError when backup is not completed."""
     mock_backup = MagicMock()
     mock_backup.status.phase = "InProgress"
+    mock_lightkube_client.get.return_value = mock_backup
+
+    with pytest.raises(VeleroStatusError) as ve:
+        Velero.check_velero_backup(mock_lightkube_client, "velero", "backup")
+    assert str(ve.value) == "Velero Backup is still in progress: 'InProgress'"
+
+
+def test_check_velero_backup_failed(mock_lightkube_client):
+    """Check check_velero_backup raises VeleroBackupStatusError when backup has failed."""
+    mock_backup = MagicMock()
+    mock_backup.status.phase = "Failed"
     mock_lightkube_client.get.return_value = mock_backup
 
     with pytest.raises(VeleroBackupStatusError) as ve:
         Velero.check_velero_backup(mock_lightkube_client, "velero", "backup")
     assert ve.value.name == "backup"
-    assert ve.value.reason == "Status is 'InProgress'"
+    assert ve.value.reason == "Status is 'Failed'"
 
 
 def test_check_velero_backup_no_status(mock_lightkube_client):
@@ -1294,16 +1311,27 @@ def test_check_velero_restore_success(mock_lightkube_client):
     assert Velero.check_velero_restore(mock_lightkube_client, "velero", "restore") is None
 
 
-def test_check_velero_restore_not_completed(mock_lightkube_client):
-    """Check check_velero_restore raises VeleroRestoreStatusError when restore is not completed."""
+def test_check_velero_restore_in_progress(mock_lightkube_client):
+    """Check check_velero_restore raises VeleroStatusError when restore is not completed."""
     mock_restore = MagicMock()
     mock_restore.status.phase = "InProgress"
+    mock_lightkube_client.get.return_value = mock_restore
+
+    with pytest.raises(VeleroStatusError) as ve:
+        Velero.check_velero_restore(mock_lightkube_client, "velero", "restore")
+    assert str(ve.value) == "Velero Restore is still in progress: 'InProgress'"
+
+
+def test_check_velero_restore_failed(mock_lightkube_client):
+    """Check check_velero_restore raises VeleroRestoreStatusError when restore has failed."""
+    mock_restore = MagicMock()
+    mock_restore.status.phase = "Failed"
     mock_lightkube_client.get.return_value = mock_restore
 
     with pytest.raises(VeleroRestoreStatusError) as ve:
         Velero.check_velero_restore(mock_lightkube_client, "velero", "restore")
     assert ve.value.name == "restore"
-    assert ve.value.reason == "Status is 'InProgress'"
+    assert ve.value.reason == "Status is 'Failed'"
 
 
 def test_check_velero_restore_no_status(mock_lightkube_client):

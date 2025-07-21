@@ -230,7 +230,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             return
 
         event.log("Creating a backup...")
-        backup_name_prefix = f"{app}-{endpoint}"
+        backup_name_prefix = f"{app}-{endpoint}-"
         try:
             backup_name = self.velero.create_backup(
                 self.lightkube_client,
@@ -240,7 +240,6 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 labels={
                     "app": app,
                     "endpoint": endpoint,
-                    "app.kubernetes.io/managed-by": "velero-operator",
                 },
                 annotations={
                     "created-at": str(round(time.time())),
@@ -310,9 +309,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 self.lightkube_client,
                 backup_uid,
                 existing_resource_policy,
-                labels={
-                    "app.kubernetes.io/managed-by": "velero-operator",
-                },
+                labels=None,
                 annotations={
                     "created-at": str(round(time.time())),
                 },
