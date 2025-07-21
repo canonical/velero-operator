@@ -5,6 +5,8 @@ items:
   kind: PersistentVolumeClaim
   metadata:
     name: {{ pvc_name }}
+    labels:
+      app: dummy
   spec:
     accessModes:
       - ReadWriteOnce
@@ -16,6 +18,8 @@ items:
   kind: Deployment
   metadata:
     name: dummy-deployment
+    labels:
+      app: dummy
   spec:
     replicas: 1
     selector:
@@ -41,3 +45,28 @@ items:
         - name: dummy-volume
           persistentVolumeClaim:
             claimName: {{ pvc_name }}
+
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: dummy-config
+    labels:
+      app: dummy-2
+  data:
+    test-key: "This is a test value for Velero Operator ConfigMap"
+    another-key: "Another value for testing purposes"
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: dummy-service
+    labels:
+        app: dummy
+  spec:
+      type: ClusterIP
+      selector:
+      app: dummy
+      ports:
+      - protocol: TCP
+        port: 80
+        targetPort: 8080

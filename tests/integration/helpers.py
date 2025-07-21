@@ -42,6 +42,9 @@ READY_MESSAGE = "Unit is Ready"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_1 = "Velero Deployment is not ready: ImagePullBackOff"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_2 = "Velero Deployment is not ready: ErrImagePull"
 
+S3_INTEGRATOR = "s3-integrator"
+S3_INTEGRATOR_CHANNEL = "latest/stable"
+
 
 def get_model(ops_test: OpsTest) -> Model:
     """Return the Juju model of the current test.

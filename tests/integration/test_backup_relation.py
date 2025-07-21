@@ -10,6 +10,8 @@ import pytest
 from helpers import (
     APP_NAME,
     APP_RELATION_NAME,
+    S3_INTEGRATOR,
+    S3_INTEGRATOR_CHANNEL,
     TEST_APP_FIRST_RELATION_NAME,
     TEST_APP_NAME,
     TEST_APP_SECOND_RELATION_NAME,
@@ -19,15 +21,19 @@ from helpers import (
     get_relation_data,
     is_relation_broken,
     is_relation_joined,
+    k8s_assert_resource_exists,
+    k8s_delete_and_wait,
+    k8s_get_velero_backup,
     run_charm_action,
 )
+from lightkube.resources.core_v1 import Namespace
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
 
 
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy(ops_test: OpsTest):
+async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info):
     """Build and deploy the velero-operator and test charm."""
     logger.info("Building and deploying velero-operator charm and test charm")
     velero_charm = await ops_test.build_charm(".")
@@ -39,13 +45,38 @@ async def test_build_and_deploy(ops_test: OpsTest):
             velero_charm,
             application_name=APP_NAME,
             trust=True,
+            config={"use-node-agent": True, "default-volumes-to-fs-backup": True},
         ),
         model.deploy(
             test_charm,
             application_name=TEST_APP_NAME,
         ),
+        model.deploy(S3_INTEGRATOR, channel=S3_INTEGRATOR_CHANNEL),
         model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=TIMEOUT),
         model.wait_for_idle(apps=[TEST_APP_NAME], status="waiting", timeout=TIMEOUT),
+    )
+
+
+@pytest.mark.abort_on_fail
+async def test_configure_s3_integrator(
+    ops_test: OpsTest,
+    s3_cloud_credentials,
+    s3_cloud_configs,
+):
+    """Configure the integrator charm with the credentials and configs."""
+    logger.info("Setting credentials for %s", S3_INTEGRATOR)
+    model = get_model(ops_test)
+    app = model.applications[S3_INTEGRATOR]
+
+    await app.set_config(s3_cloud_configs)
+    action = await app.units[0].run_action("sync-s3-credentials", **s3_cloud_credentials)
+    result = await action.wait()
+    assert result.results.get("return-code") == 0
+
+    await model.wait_for_idle(
+        apps=[S3_INTEGRATOR],
+        status="active",
+        timeout=TIMEOUT,
     )
 
 
@@ -92,36 +123,42 @@ async def test_relate(ops_test: OpsTest):
         for key, value in expected_spec.items():
             assert spec.get(key) == value
 
+    await model.integrate(APP_NAME, S3_INTEGRATOR)
     await integrate_and_check(
         TEST_APP_FIRST_RELATION_NAME,
         {
-            "include_namespaces": ["user-namespace", "other-namespace"],
-            "include_resources": ["deployments", "services"],
-            "label_selector": {"app": "test"},
+            "include_namespaces": ["velero-integration-tests"],
+            "include_resources": ["deployments", "persistentvolumeclaims"],
+            "label_selector": {"app": "dummy"},
             "ttl": "24h5m5s",
             "exclude_namespaces": None,
             "exclude_resources": None,
-            "include_cluster_resources": False,
-        },
-    )
-
-    await integrate_and_check(
-        TEST_APP_SECOND_RELATION_NAME,
-        {
-            "include_namespaces": None,
-            "include_resources": None,
-            "label_selector": {"tier": "test"},
-            "ttl": "12h30m",
-            "exclude_namespaces": ["excluded-namespace"],
-            "exclude_resources": ["pods"],
             "include_cluster_resources": True,
         },
     )
+    await integrate_and_check(
+        TEST_APP_SECOND_RELATION_NAME,
+        {
+            "include_namespaces": ["velero-integration-tests"],
+            "include_resources": None,
+            "ttl": "12h30m",
+            "exclude_namespaces": None,
+            "exclude_resources": ["deployments", "persistentvolumeclaims"],
+            "label_selector": None,
+            "include_cluster_resources": True,
+        },
+    )
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            timeout=TIMEOUT,
+        )
 
 
 @pytest.mark.abort_on_fail
-async def test_lib_getters(ops_test: OpsTest):
-    """Test the getters for the VeleroBackupRequirer."""
+async def test_create_backup(ops_test: OpsTest, k8s_test_resources, lightkube_client):
+    """Test create-backup action of the velero-operator charm."""
     logger.info("Testing VeleroBackupProvider getters")
     model = get_model(ops_test)
     unit = model.applications[APP_NAME].units[0]
@@ -138,16 +175,73 @@ async def test_lib_getters(ops_test: OpsTest):
         pass
 
     logger.info("Running the create-backup action with the correct targets")
-    await run_charm_action(
+    result = await run_charm_action(
         unit,
         "create-backup",
         target=f"{TEST_APP_NAME}:{TEST_APP_FIRST_RELATION_NAME}",
     )
-    await run_charm_action(
+    first_backup_name = result["backup-name"]
+    result = await run_charm_action(
         unit,
         "create-backup",
         target=f"{TEST_APP_NAME}:{TEST_APP_SECOND_RELATION_NAME}",
     )
+    second_backup_name = result["backup-name"]
+
+    logger.info("Verifying the backup")
+    first_backup = k8s_get_velero_backup(lightkube_client, first_backup_name, model.name)
+    second_backup = k8s_get_velero_backup(lightkube_client, second_backup_name, model.name)
+    assert first_backup["status"]["phase"] == "Completed", "First backup is not completed"
+    assert second_backup["status"]["phase"] == "Completed", "Second backup is not completed"
+    logger.info("Created backups: %s and %s", first_backup_name, second_backup_name)
+
+
+@pytest.mark.abort_on_fail
+async def test_list_backups(ops_test: OpsTest):
+    """Test the list-backups action of the velero-operator charm."""
+    logger.info("Testing list-backups action")
+    model = get_model(ops_test)
+    unit = model.applications[APP_NAME].units[0]
+
+    result = await run_charm_action(unit, "list-backups", app=TEST_APP_NAME)
+    backups = result["backups"]
+    assert len(backups) == 2, "Expected two backups for the specified app"
+
+    result = await run_charm_action(
+        unit, "list-backups", app=TEST_APP_NAME, endpoint=TEST_APP_FIRST_RELATION_NAME
+    )
+    backups = result["backups"]
+    assert len(backups) == 1, "Expected one backup for the specified app and endpoint"
+
+
+@pytest.mark.abort_on_fail
+async def test_create_restore(ops_test: OpsTest, k8s_test_resources, lightkube_client):
+    """Test the create-restore action of the velero-operator charm."""
+    logger.info("Testing restore functionality")
+    model = get_model(ops_test)
+    unit = model.applications[APP_NAME].units[0]
+    test_resources = k8s_test_resources["resources"]
+    test_namespace = k8s_test_resources["namespace"].metadata.name
+    k8s_delete_and_wait(lightkube_client, Namespace, test_namespace, grace_period=0)
+
+    logger.info("Getting current backups")
+    result = await run_charm_action(unit, "list-backups", app=TEST_APP_NAME)
+    assert len(result["backups"]) > 0, "No backups found"
+    backup_uids = list(result["backups"].keys())
+
+    logger.info("Creating restores for each backup")
+    for backup_uid in backup_uids:
+        await run_charm_action(
+            unit,
+            "restore",
+            **{"backup-uid": backup_uid},
+        )
+
+    logger.info("Verifying the restore")
+    for resource in test_resources:
+        k8s_assert_resource_exists(
+            lightkube_client, type(resource), name=resource.metadata.name, namespace=test_namespace
+        )
 
 
 @pytest.mark.abort_on_fail
@@ -156,6 +250,7 @@ async def test_unrelate(ops_test: OpsTest):
     logger.info("Unrelating velero-operator from %s", TEST_APP_NAME)
     model = get_model(ops_test)
 
+    await ops_test.juju(*["remove-relation", APP_NAME, S3_INTEGRATOR])
     await ops_test.juju(
         *["remove-relation", APP_NAME, f"{TEST_APP_NAME}:{TEST_APP_FIRST_RELATION_NAME}"]
     )
@@ -172,6 +267,12 @@ async def test_unrelate(ops_test: OpsTest):
             raise_on_blocked=False,
             timeout=TIMEOUT,
         )
+        await model.wait_for_idle(
+            apps=[APP_NAME],
+            status="blocked",
+            raise_on_blocked=False,
+            timeout=TIMEOUT,
+        )
 
 
 @pytest.mark.abort_on_fail
@@ -182,5 +283,6 @@ async def test_remove(ops_test: OpsTest):
 
     await asyncio.gather(
         model.remove_application(APP_NAME, block_until_done=True),
+        model.remove_application(S3_INTEGRATOR, block_until_done=True),
         model.remove_application(TEST_APP_NAME, block_until_done=True),
     )

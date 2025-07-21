@@ -13,6 +13,8 @@ from helpers import (
     DEPLOYMENT_IMAGE_ERROR_MESSAGE_2,
     MISSING_RELATION_MESSAGE,
     READY_MESSAGE,
+    S3_INTEGRATOR,
+    S3_INTEGRATOR_CHANNEL,
     TIMEOUT,
     assert_app_status,
     get_model,
@@ -28,8 +30,6 @@ from pytest_operator.plugin import OpsTest
 logger = logging.getLogger(__name__)
 
 VELERO_AWS_PLUGIN_IMAGE_KEY = "velero-aws-plugin-image"
-S3_INTEGRATOR = "s3-integrator"
-S3_INTEGRATOR_CHANNEL = "latest/stable"
 BACKUP_NAME = f"test-backup-{uuid.uuid4()}"
 
 
