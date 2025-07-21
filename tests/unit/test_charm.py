@@ -11,7 +11,14 @@ from scenario import Relation
 
 from charm import VeleroOperatorCharm
 from constants import StorageRelation
-from velero import S3StorageProvider, VeleroError, VeleroStatusError
+from velero import (
+    BackupInfo,
+    S3StorageProvider,
+    VeleroBackupStatusError,
+    VeleroError,
+    VeleroRestoreStatusError,
+    VeleroStatusError,
+)
 
 VELERO_IMAGE_CONFIG_KEY = "velero-image"
 USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
@@ -32,6 +39,7 @@ MANY_RELATIONS_ERROR_MESSAGE = (
 K8S_API_ERROR_MESSAGE = "Failed to access K8s API. See juju debug-log for details."
 INVALID_CONFIG_MESSAGE = "Invalid configuration: "
 UPGRADE_MESSAGE = "Upgrading Velero"
+VELERO_BACKUP_ENDPOINT = "velero-backups"
 
 
 @pytest.fixture()
@@ -456,7 +464,7 @@ def test_storage_relation_broken_error(mock_velero, mock_lightkube_client):
     )
 
 
-def test_on_run_action_success(
+def test_run_cli_action_success(
     mock_velero,
     mock_lightkube_client,
 ):
@@ -512,7 +520,7 @@ def test_on_run_action_success(
         ),
     ],
 )
-def test_on_run_action_failed(
+def test_on_run_cli_action_failed(
     command,
     rel_configured,
     velero_error,
@@ -648,3 +656,332 @@ def test_on_upgrade_charm_success(
     # Assert
     assert state_out.unit_status == testing.MaintenanceStatus(UPGRADE_MESSAGE)
     mock_velero.upgrade.assert_called_once_with(mock_lightkube_client)
+
+
+def test_run_create_backup_action_success(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test the run_backup_action handler."""
+    # Arrange
+    command = "test-app:test-endpoint"
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = Relation(
+            endpoint=VELERO_BACKUP_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data={
+                "app": "test-app",
+                "relation_name": "test-endpoint",
+                "spec": '{"include_namespaces": ["test-namespace"]}',
+            },
+        )
+
+        # Act
+        ctx.run(
+            ctx.on.action("create-backup", params={"target": command}),
+            testing.State(relations=[relation]),
+        )
+
+        # Assert
+        mock_velero.create_backup.assert_called_once()
+        assert ctx.action_results.get("status") == "success"
+
+
+@pytest.mark.parametrize(
+    "command,relation,storage_configured,backup_side_effect,expected_exc",
+    [
+        # Storage not configured
+        (
+            "test-app:test-endpoint",
+            Relation(
+                endpoint=VELERO_BACKUP_ENDPOINT,
+                remote_app_name="test-app",
+                remote_app_data={
+                    "app": "test-app",
+                    "relation_name": "test-endpoint",
+                    "spec": '{"include_namespaces": ["test-namespace"]}',
+                },
+            ),
+            False,
+            None,
+            testing.ActionFailed,
+        ),
+        # Invalid target (no relation)
+        (
+            "invalid-target",
+            None,
+            True,
+            None,
+            testing.ActionFailed,
+        ),
+        # No relation provided at all (valid target, but relation not present)
+        (
+            "test-app:test-endpoint",
+            None,
+            True,
+            None,
+            testing.ActionFailed,
+        ),
+        # Backup fails (VeleroStatusError)
+        (
+            "test-app:test-endpoint",
+            Relation(
+                endpoint=VELERO_BACKUP_ENDPOINT,
+                remote_app_name="test-app",
+                remote_app_data={
+                    "app": "test-app",
+                    "relation_name": "test-endpoint",
+                    "spec": '{"include_namespaces": ["test-namespace"]}',
+                },
+            ),
+            True,
+            VeleroBackupStatusError(name="test-backup-name", reason="Backup creation failed"),
+            testing.ActionFailed,
+        ),
+        # Backup creation fails (VeleroError)
+        (
+            "test-app:test-endpoint",
+            Relation(
+                endpoint=VELERO_BACKUP_ENDPOINT,
+                remote_app_name="test-app",
+                remote_app_data={
+                    "app": "test-app",
+                    "relation_name": "test-endpoint",
+                    "spec": '{"include_namespaces": ["test-namespace"]}',
+                },
+            ),
+            True,
+            VeleroError("Backup creation failed"),
+            testing.ActionFailed,
+        ),
+    ],
+)
+def test_run_create_backup_action_failed(
+    command,
+    relation,
+    storage_configured,
+    backup_side_effect,
+    expected_exc,
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test the run_backup_action handler for various failure cases."""
+    with patch.object(
+        VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+    ) as mock_storage_rel:
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = storage_configured
+        mock_velero.create_backup.side_effect = backup_side_effect
+        ctx = testing.Context(VeleroOperatorCharm)
+
+        relations = [relation] if relation else []
+
+        with pytest.raises(expected_exc):
+            ctx.run(
+                ctx.on.action("create-backup", params={"target": command}),
+                testing.State(relations=relations),
+            )
+
+
+def test_run_restore_action_success(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test the run_restore_action handler."""
+    # Arrange
+    backup_uid = "test-backup-uid"
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.create_restore.return_value = "test-restore"
+        ctx = testing.Context(VeleroOperatorCharm)
+
+        # Act
+        ctx.run(
+            ctx.on.action("restore", params={"backup-uid": backup_uid}),
+            testing.State(),
+        )
+
+        # Assert
+        mock_velero.create_restore.assert_called_once()
+        assert ctx.action_results.get("status") == "success"
+
+
+@pytest.mark.parametrize(
+    "backup_uid,storage_configured,restore_side_effect",
+    [
+        # Storage not configured
+        ("test-backup-uid", False, None),
+        # Restore fails (VeleroError)
+        (
+            "test-backup-uid",
+            True,
+            VeleroError("Restore creation failed"),
+        ),
+        # Restore creation fails (VeleroRestoreStatusError)
+        (
+            "test-backup",
+            True,
+            VeleroRestoreStatusError(name="test-restore-name", reason="Restore creation failed"),
+        ),
+    ],
+)
+def test_run_restore_action_failed(
+    backup_uid,
+    storage_configured,
+    restore_side_effect,
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test the run_restore_action handler for various failure cases."""
+    with patch.object(
+        VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+    ) as mock_storage_rel:
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = storage_configured
+        mock_velero.create_restore.side_effect = restore_side_effect
+        ctx = testing.Context(VeleroOperatorCharm)
+
+        with pytest.raises(testing.ActionFailed):
+            ctx.run(
+                ctx.on.action("restore", params={"backup-uid": backup_uid}),
+                testing.State(),
+            )
+
+
+def test_run_list_backups_action_success(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test the run_list_backups_action handler."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.get_backups.return_value = [
+            BackupInfo(
+                uid="backup1-uid",
+                name="backup1",
+                labels={
+                    "app": "app1",
+                    "endpoint": "endpoint1",
+                },
+                annotations={},
+                phase="Completed",
+                start_timestamp="2023-01-01T00:00:00Z",
+            ),
+            BackupInfo(
+                uid="backup2-uid",
+                name="backup2",
+                labels={
+                    "app": "app2",
+                },
+                annotations={},
+                phase="InProgress",
+                start_timestamp="2023-01-02T00:00:00Z",
+            ),
+        ]
+        ctx = testing.Context(VeleroOperatorCharm)
+
+        # Act
+        ctx.run(ctx.on.action("list-backups"), testing.State())
+
+        # Assert
+        mock_velero.get_backups.assert_called_once()
+        assert ctx.action_results.get("status") == "success"
+        assert ctx.action_results.get("backups") == {
+            "backup1-uid": {
+                "name": "backup1",
+                "app": "app1",
+                "endpoint": "endpoint1",
+                "phase": "Completed",
+                "start-timestamp": "2023-01-01T00:00:00Z",
+                "completion-timestamp": None,
+            },
+            "backup2-uid": {
+                "name": "backup2",
+                "app": "app2",
+                "endpoint": "N/A",
+                "phase": "InProgress",
+                "start-timestamp": "2023-01-02T00:00:00Z",
+                "completion-timestamp": None,
+            },
+        }
+
+
+def test_run_list_backups_action_storage_not_configured(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test the run_list_backups_action handler when storage is not configured."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = False
+        ctx = testing.Context(VeleroOperatorCharm)
+
+        # Act and Assert
+        with pytest.raises(testing.ActionFailed):
+            ctx.run(ctx.on.action("list-backups"), testing.State())
+
+
+def test_run_list_backups_action_invalid_params(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test the run_list_backups_action handler with invalid parameters."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+
+        # Act and Assert
+        with pytest.raises(testing.ActionFailed):
+            ctx.run(
+                ctx.on.action("list-backups", params={"endpoint": "endpoint"}), testing.State()
+            )
+
+
+def test_run_list_backups_action_failed(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test the run_list_backups_action handler when an error occurs."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.get_backups.side_effect = VeleroError("Failed to list backups")
+        ctx = testing.Context(VeleroOperatorCharm)
+
+        # Act and Assert
+        with pytest.raises(testing.ActionFailed):
+            ctx.run(ctx.on.action("list-backups"), testing.State())
