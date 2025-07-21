@@ -8,7 +8,7 @@ import logging
 import shlex
 import time
 from functools import cached_property
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import ops
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
@@ -29,11 +29,14 @@ from constants import (
     StorageRelation,
 )
 from velero import (
+    BackupInfo,
     ExistingResourcePolicy,
     S3StorageProvider,
     StorageProviderError,
     Velero,
+    VeleroBackupStatusError,
     VeleroError,
+    VeleroRestoreStatusError,
     VeleroStatusError,
 )
 
@@ -227,12 +230,11 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             return
 
         event.log("Creating a backup...")
+        backup_name_prefix = f"{app}-{endpoint}"
         try:
-            backup_name = f"{app}-{endpoint}-{round(time.time())}"
-            event.log(check_message.format(backup_name=backup_name))
-            self.velero.create_backup(
+            backup_name = self.velero.create_backup(
                 self.lightkube_client,
-                backup_name,
+                backup_name_prefix,
                 backup_spec,
                 self.config.default_volumes_to_fs_backup,
                 labels={
@@ -240,9 +242,16 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                     "endpoint": endpoint,
                     "app.kubernetes.io/managed-by": "velero-operator",
                 },
+                annotations={
+                    "created-at": str(round(time.time())),
+                },
             )
             event.log(f"Backup '{backup_name}' created successfully.")
+            event.log(check_message.format(backup_name=backup_name))
             event.set_results({"status": "success", "backup-name": backup_name})
+        except VeleroBackupStatusError as ve:
+            event.log(check_message.format(backup_name=ve.name))
+            event.fail(f"Velero Backup failed: {ve.reason}")
         except (VeleroError, ApiError) as e:
             event.fail("%s" % e)
             return
@@ -267,23 +276,19 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             backups = self.velero.get_backups(
                 self.lightkube_client, labels={"app": app, "endpoint": endpoint}
             )
-            backups_info = {}
-            for backup in backups:
-                backups_info[backup.metadata.name] = {  # type: ignore
-                    "app": backup.metadata.labels["app"],  # type: ignore
-                    "endpoint": backup.metadata.labels["endpoint"],  # type: ignore
-                    "phase": backup.status.phase,  # type: ignore
-                    "startTimestamp": backup.status.startTimestamp,  # type: ignore
-                    "completionTimestamp": backup.status.completionTimestamp,  # type: ignore
+            event.set_results(
+                {
+                    "status": "success",
+                    "backups": self._backup_list_to_dict(backups),
                 }
-            event.set_results({"status": "success", "backups": backups_info})
-        except (VeleroError, ApiError) as e:
+            )
+        except VeleroError as e:
             event.fail("%s" % e)
             return
 
     def on_restore_action(self, event: ops.ActionEvent) -> None:
         """Handle the restore action event."""
-        backup_name = event.params["backup-name"]
+        backup_uid = event.params["backup-uid"]
         existing_resource_policy = ExistingResourcePolicy(
             event.params.get("existing-resource-policy", "none")
         )
@@ -301,18 +306,22 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
         event.log("Creating a restore...")
         try:
-            restore_name = f"{backup_name}-{round(time.time())}"
-            event.log(check_message.format(restore_name=restore_name))
-            self.velero.create_restore(
+            restore_name = self.velero.create_restore(
                 self.lightkube_client,
-                restore_name,
-                backup_name,
+                backup_uid,
                 existing_resource_policy,
                 labels={
                     "app.kubernetes.io/managed-by": "velero-operator",
                 },
+                annotations={
+                    "created-at": str(round(time.time())),
+                },
             )
+            event.log(check_message.format(restore_name=restore_name))
             event.set_results({"status": "success", "restore-name": restore_name})
+        except VeleroRestoreStatusError as ve:
+            event.log(check_message.format(restore_name=ve.name))
+            event.fail(f"Velero Restore failed: {ve.reason}")
         except (VeleroError, ApiError) as e:
             event.fail("%s" % e)
             return
@@ -415,6 +424,20 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             raise ValueError(f"Unknown status type: {status}")
 
         self.unit.status = status
+
+    def _backup_list_to_dict(self, backups: List[BackupInfo]) -> dict:
+        """Convert a list of BackupInfo objects to a dictionary, printable for action results."""
+        result = {}
+        for b in backups:
+            result[b.uid] = {
+                "name": b.name,
+                "app": b.labels.get("app", "N/A"),
+                "endpoint": b.labels.get("endpoint", "N/A"),
+                "phase": b.phase,
+                "start-timestamp": b.start_timestamp,
+                "completion-timestamp": b.completion_timestamp,
+            }
+        return result
 
     def _validate_config(self) -> None:
         """Check the charm configs and raise error if they are not correct.

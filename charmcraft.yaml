@@ -107,12 +107,12 @@ actions:
   restore:
     description: Restore a Velero backup using the velero-backups relation.
     params:
-      backup-name:
+      backup-uid:
         description: |
-          The ID of the backup to use, can be retrieved by running the `list-backups` action.
+          The UID of the backup to use, can be retrieved by running the `list-backups` action.
         type: string
         examples:
-        - "my-backup-1234"
+        - "123e4567-e89b-12d3-a456-426614174000"
       existing-resource-policy:
         description: |
           Restore Policy to be used during the restore workflow, can be - `none` or `update`

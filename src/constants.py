@@ -38,7 +38,6 @@ VELERO_BACKUP_LOCATION_RESOURCE = create_namespaced_resource(
 VELERO_VOLUME_SNAPSHOT_LOCATION_RESOURCE = create_namespaced_resource(
     "velero.io", "v1", "VolumeSnapshotLocation", "volumesnapshotlocations"
 )
-VELERO_BACKUP_RESOURCE = create_namespaced_resource("velero.io", "v1", "Backup", "backups")
 
 
 class StorageRelation(str, Enum):

@@ -3,7 +3,15 @@
 
 """Velero module."""
 
-from .core import Velero, VeleroCLIError, VeleroError, VeleroStatusError
+from .core import (
+    BackupInfo,
+    Velero,
+    VeleroBackupStatusError,
+    VeleroCLIError,
+    VeleroError,
+    VeleroRestoreStatusError,
+    VeleroStatusError,
+)
 from .crds import ExistingResourcePolicy
 from .providers import (
     S3StorageConfig,
@@ -20,4 +28,7 @@ __all__ = [
     "VeleroCLIError",
     "VeleroStatusError",
     "ExistingResourcePolicy",
+    "BackupInfo",
+    "VeleroBackupStatusError",
+    "VeleroRestoreStatusError",
 ]
