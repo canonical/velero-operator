@@ -25,6 +25,7 @@ from helpers import (
     k8s_delete_and_wait,
     k8s_get_velero_backup,
     run_charm_action,
+    verify_pvc_content,
 )
 from lightkube.resources.core_v1 import Namespace
 from pytest_operator.plugin import OpsTest
@@ -128,7 +129,7 @@ async def test_relate(ops_test: OpsTest):
         TEST_APP_FIRST_RELATION_NAME,
         {
             "include_namespaces": ["velero-integration-tests"],
-            "include_resources": ["deployments", "persistentvolumeclaims"],
+            "include_resources": ["deployments", "persistentvolumeclaims", "pods"],
             "label_selector": {"app": "dummy"},
             "ttl": "24h5m5s",
             "exclude_namespaces": None,
@@ -143,9 +144,9 @@ async def test_relate(ops_test: OpsTest):
             "include_resources": None,
             "ttl": "12h30m",
             "exclude_namespaces": None,
-            "exclude_resources": ["deployments", "persistentvolumeclaims"],
+            "exclude_resources": ["deployments", "persistentvolumeclaims", "pods"],
             "label_selector": None,
-            "include_cluster_resources": True,
+            "include_cluster_resources": False,
         },
     )
     async with ops_test.fast_forward(fast_interval="60s"):
@@ -222,6 +223,8 @@ async def test_create_restore(ops_test: OpsTest, k8s_test_resources, lightkube_c
     unit = model.applications[APP_NAME].units[0]
     test_resources = k8s_test_resources["resources"]
     test_namespace = k8s_test_resources["namespace"].metadata.name
+    test_file = k8s_test_resources["test_file_path"]
+    test_pvc_name = k8s_test_resources["pvc_name"]
     k8s_delete_and_wait(lightkube_client, Namespace, test_namespace, grace_period=0)
 
     logger.info("Getting current backups")
@@ -242,6 +245,7 @@ async def test_create_restore(ops_test: OpsTest, k8s_test_resources, lightkube_c
         k8s_assert_resource_exists(
             lightkube_client, type(resource), name=resource.metadata.name, namespace=test_namespace
         )
+    verify_pvc_content(lightkube_client, test_namespace, test_pvc_name, test_file, 2)
 
 
 @pytest.mark.abort_on_fail
