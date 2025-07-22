@@ -44,7 +44,7 @@ from k8s_utils import (
     K8sResource,
     k8s_create_cluster_ip_service,
     k8s_create_secret,
-    k8s_get_resource_name_by_uid,
+    k8s_get_backup_name_by_uid,
     k8s_remove_resource,
     k8s_resource_exists,
     k8s_retry_check,
@@ -833,8 +833,6 @@ class Velero:
             VeleroBackupStatusError: If the backup status is not successful.
         """
         backup = Backup(
-            apiVersion="velero.io/v1",
-            kind="Backup",
             metadata=ObjectMeta(
                 generateName=name_prefix,
                 namespace=self._namespace,
@@ -900,9 +898,8 @@ class Velero:
             VeleroRestoreStatusError: If the restore status is not successful.
         """
         logger.info("Checking if Velero Backup with UID '%s' exists", backup_uid)
-        backup_name = k8s_get_resource_name_by_uid(
+        backup_name = k8s_get_backup_name_by_uid(
             kube_client,
-            Backup,
             backup_uid,
             self._namespace,
         )
@@ -911,8 +908,6 @@ class Velero:
             raise VeleroError(f"Velero Backup with UID '{backup_uid}' not found")
 
         restore = Restore(
-            apiVersion="velero.io/v1",
-            kind="Restore",
             metadata=ObjectMeta(
                 generateName=backup_name,
                 namespace=self._namespace,
@@ -942,7 +937,7 @@ class Velero:
         Velero.check_velero_restore(kube_client, self._namespace, restore_name)
         return restore_name
 
-    def get_backups(
+    def list_backups(
         self, kube_client: Client, labels: Optional[Dict[str, Optional[str]]] = None
     ) -> List[BackupInfo]:
         """List all Velero backups in the cluster.
@@ -956,12 +951,10 @@ class Velero:
             VeleroError: If the backup listing fails.
         """
         try:
-            backups = list(
-                kube_client.list(
-                    Backup,
-                    namespace=self._namespace,
-                    labels=labels,  # type: ignore
-                )
+            backups = kube_client.list(
+                Backup,
+                namespace=self._namespace,
+                labels=labels,  # type: ignore
             )
             backup_infos = []
             for backup in backups:

@@ -49,8 +49,8 @@ class RestoreStatusModel(DictMixin):
 class RestoreModel(DictMixin):
     """Restore model representing the Velero Restore CRD."""
 
-    apiVersion: Optional[str] = None
-    kind: Optional[str] = None
+    apiVersion: str = "velero.io/v1"
+    kind: str = "Restore"
     metadata: Optional[meta_v1.ObjectMeta] = None
     spec: Optional[RestoreSpecModel] = None
     status: Optional[RestoreStatusModel] = None

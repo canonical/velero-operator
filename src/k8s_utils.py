@@ -22,6 +22,7 @@ from tenacity import (
 )
 
 from constants import K8S_CHECK_ATTEMPTS, K8S_CHECK_DELAY, K8S_CHECK_OBSERVATIONS
+from velero.crds import Backup
 
 logger = logging.getLogger(__name__)
 
@@ -205,19 +206,17 @@ def k8s_create_cluster_ip_service(
         raise ae
 
 
-def k8s_get_resource_name_by_uid(
+def k8s_get_backup_name_by_uid(
     kube_client: Client,
-    resource_type: Type[Union[NamespacedResource, GlobalResource]],
     uid: str,
     namespace: str,
 ) -> Optional[str]:
-    """Get a Kubernetes resource name by its UID.
+    """Get the name of a Backup resource by its UID.
 
     Args:
         kube_client (Client): The Kubernetes client used to interact with the cluster.
-        resource_type (Type[Union[NamespacedResource, GlobalResource]]): The type of the resource.
-        uid (str): The UID of the resource.
-        namespace (Optional[str]): The namespace of the resource if it is a NamespacedResource.
+        uid (str): The UID of the Backup resource.
+        namespace (str): The namespace of the resource if it is a NamespacedResource.
 
     Returns:
         str: The resource name if found.
@@ -227,31 +226,17 @@ def k8s_get_resource_name_by_uid(
     """
     resources = []
     try:
-        if issubclass(resource_type, NamespacedResource):
-            resources = list(kube_client.list(resource_type, namespace=namespace))
-        elif issubclass(resource_type, GlobalResource):
-            resources = list(kube_client.list(resource_type))
-        else:  # pragma: no cover
-            raise ValueError(f"Unknown resource type: {resource_type}")
+        resources = list(kube_client.list(Backup, namespace=namespace))
     except ApiError as ae:
-        logging.error("Failed to get %s with UID '%s': %s", resource_type.__name__, uid, ae)
+        logging.error("Failed to get Backup with UID '%s': %s", uid, ae)
         raise ae
 
-    logging.info(resources)
-
     for resource in resources:
-        metadata = (
-            resource.get("metadata")
-            if isinstance(resource, dict)
-            else getattr(resource, "metadata", None)
-        )
-        uid_value = (
-            metadata.get("uid") if isinstance(metadata, dict) else getattr(metadata, "uid", None)
-        )
-        name_value = (
-            metadata.get("name") if isinstance(metadata, dict) else getattr(metadata, "name", None)
-        )
-        if metadata and uid_value == uid:
+        if resource.metadata is None:
+            continue
+        uid_value = resource.metadata.uid
+        name_value = resource.metadata.name
+        if uid_value == uid and name_value is not None:
             return name_value
 
     return None

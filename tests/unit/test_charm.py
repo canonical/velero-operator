@@ -873,7 +873,7 @@ def test_run_list_backups_action_success(
     ):
         mock_storage_rel.return_value = StorageRelation.S3
         mock_velero.is_storage_configured.return_value = True
-        mock_velero.get_backups.return_value = [
+        mock_velero.list_backups.return_value = [
             BackupInfo(
                 uid="backup1-uid",
                 name="backup1",
@@ -902,7 +902,7 @@ def test_run_list_backups_action_success(
         ctx.run(ctx.on.action("list-backups"), testing.State())
 
         # Assert
-        mock_velero.get_backups.assert_called_once()
+        mock_velero.list_backups.assert_called_once()
         assert ctx.action_results.get("status") == "success"
         assert ctx.action_results.get("backups") == {
             "backup1-uid": {
@@ -979,7 +979,7 @@ def test_run_list_backups_action_failed(
     ):
         mock_storage_rel.return_value = StorageRelation.S3
         mock_velero.is_storage_configured.return_value = True
-        mock_velero.get_backups.side_effect = VeleroError("Failed to list backups")
+        mock_velero.list_backups.side_effect = VeleroError("Failed to list backups")
         ctx = testing.Context(VeleroOperatorCharm)
 
         # Act and Assert

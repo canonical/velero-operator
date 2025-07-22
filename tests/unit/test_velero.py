@@ -1255,10 +1255,12 @@ def test_create_restore_success(mock_check, mock_lightkube_client, velero):
     backup_name = "test-backup"
 
     backup_1 = MagicMock()
-    backup_1.metadata = {"uid": "other-uid", "name": "other-backup"}
+    backup_1.metadata = ObjectMeta(uid="another-backup-uid", name="another-backup")
     backup_2 = MagicMock()
-    backup_2.metadata = {"uid": backup_uid, "name": backup_name}
-    mock_lightkube_client.list.return_value = [backup_1, backup_2]
+    backup_2.metadata = None
+    backup_3 = MagicMock()
+    backup_3.metadata = ObjectMeta(uid=backup_uid, name=backup_name)
+    mock_lightkube_client.list.return_value = [backup_1, backup_2, backup_3]
 
     velero.create_restore(
         mock_lightkube_client,
@@ -1282,8 +1284,19 @@ def test_create_restore_success(mock_check, mock_lightkube_client, velero):
     assert spec.existingResourcePolicy == "none"
 
 
-@patch("velero.core.k8s_get_resource_name_by_uid", return_value="test-restore")
-def test_create_restore_api_error(mock_lightkube_client, velero):
+def test_create_restore_get_api_error(mock_lightkube_client, velero):
+    """Check create_restore raises a ApiError when the API call to get backup fails."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.json.return_value = {"code": 500, "message": "error"}
+    api_error = ApiError(request=MagicMock(), response=mock_response)
+    mock_lightkube_client.list.side_effect = api_error
+
+    with pytest.raises(ApiError):
+        velero.create_restore(mock_lightkube_client, "test-backup", "none", {}, {})
+
+
+@patch("velero.core.k8s_get_backup_name_by_uid", return_value="test-restore")
+def test_create_restore_create_api_error(mock_lightkube_client, velero):
     """Check create_restore raises a VeleroError when the API call fails."""
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.json.return_value = {"code": 500, "message": "error"}
@@ -1358,8 +1371,8 @@ def test_check_velero_restore_api_error(mock_lightkube_client):
     assert str(ve.value) == "not found"
 
 
-def test_get_backups_success(mock_lightkube_client, velero, mock_velero_all_resources):
-    """Check get_backups returns a list of Backup objects."""
+def test_list_backups_success(mock_lightkube_client, velero, mock_velero_all_resources):
+    """Check list_backups returns a list of Backup objects."""
     mock_backup_1 = MagicMock()
     mock_backup_1.metadata.name = "backup-1"
     mock_backup_1.metadata.labels = {"app": "test", "endpoint": "test-endpoint"}
@@ -1393,16 +1406,16 @@ def test_get_backups_success(mock_lightkube_client, velero, mock_velero_all_reso
         mock_backup_5,
     ]
 
-    backups = velero.get_backups(mock_lightkube_client)
+    backups = velero.list_backups(mock_lightkube_client)
     assert len(backups) == 2
 
 
-def test_get_backups_api_error(mock_lightkube_client, velero):
-    """Check get_backups raises a VeleroError when the API call fails."""
+def test_list_backups_api_error(mock_lightkube_client, velero):
+    """Check list_backups raises a VeleroError when the API call fails."""
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.json.return_value = {"code": 500, "message": "error"}
     api_error = ApiError(request=MagicMock(), response=mock_response)
     mock_lightkube_client.list.side_effect = api_error
 
     with pytest.raises(VeleroError):
-        velero.get_backups(mock_lightkube_client)
+        velero.list_backups(mock_lightkube_client)

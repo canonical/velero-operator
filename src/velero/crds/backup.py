@@ -55,8 +55,8 @@ class BackupStatusModel(DictMixin):
 class BackupModel(DictMixin):
     """Backup model representing the Velero Backup CRD."""
 
-    apiVersion: Optional[str] = None
-    kind: Optional[str] = None
+    apiVersion: str = "velero.io/v1"
+    kind: str = "Backup"
     metadata: Optional[meta_v1.ObjectMeta] = None
     spec: Optional[BackupSpecModel] = None
     status: Optional[BackupStatusModel] = None

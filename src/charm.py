@@ -272,7 +272,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
         event.log("Listing backups...")
         try:
-            backups = self.velero.get_backups(
+            backups = self.velero.list_backups(
                 self.lightkube_client, labels={"app": app, "endpoint": endpoint}
             )
             event.set_results(
