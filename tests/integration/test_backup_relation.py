@@ -163,6 +163,12 @@ async def test_create_backup(ops_test: OpsTest, k8s_test_resources, lightkube_cl
     logger.info("Testing VeleroBackupProvider getters")
     model = get_model(ops_test)
     unit = model.applications[APP_NAME].units[0]
+    test_namespace = k8s_test_resources["namespace"].metadata.name
+    test_file = k8s_test_resources["test_file_path"]
+    test_pvc_name = k8s_test_resources["pvc_name"]
+
+    logger.info("Waiting for the test namespace to be ready")
+    verify_pvc_content(lightkube_client, test_namespace, test_pvc_name, test_file, 1)
 
     logger.info("Running the create-backup action with non-existent target")
     try:
