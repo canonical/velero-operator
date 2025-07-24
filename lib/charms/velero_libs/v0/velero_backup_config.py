@@ -39,8 +39,8 @@ class SomeCharm(CharmBase):
     # ...
     self.user_workload_backup = VeleroBackupRequirer(
         self,
-        app="kubeflow",
-        endpoint="user-workloads-backup",
+        app_name="kubeflow",
+        relation_name="user-workloads-backup",
         spec=VeleroBackupSpec(
             include_namespaces=["user-namespace],
             include_resources=["persistentvolumeclaims", "services", "deployments"],
