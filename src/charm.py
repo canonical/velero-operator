@@ -309,7 +309,6 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 self.lightkube_client,
                 backup_uid,
                 existing_resource_policy,
-                labels=None,
                 annotations={
                     "created-at": str(round(time.time())),
                 },
