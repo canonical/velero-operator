@@ -91,7 +91,7 @@ async def run_charm_action(unit: Unit, charm_action: str, **params) -> dict:
     """
     action = await unit.run_action(charm_action, **params)
     action = await action.wait()
-    assert action.status == "completed"
+    assert action.status == "completed", f"Action {charm_action} failed: {action}"
     return action.results
 
 
