@@ -6,8 +6,9 @@
 
 import logging
 import shlex
+import time
 from functools import cached_property
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import ops
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
@@ -28,10 +29,14 @@ from constants import (
     StorageRelation,
 )
 from velero import (
+    BackupInfo,
+    ExistingResourcePolicy,
     S3StorageProvider,
     StorageProviderError,
     Velero,
+    VeleroBackupStatusError,
     VeleroError,
+    VeleroRestoreStatusError,
     VeleroStatusError,
 )
 
@@ -91,6 +96,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
         self.framework.observe(self.on.run_cli_action, self._on_run_cli_action)
         self.framework.observe(self.on.create_backup_action, self._on_create_backup_action)
+        self.framework.observe(self.on.list_backups_action, self.on_list_backups_action)
+        self.framework.observe(self.on.restore_action, self.on_restore_action)
 
     # PROPERTIES
 
@@ -198,8 +205,18 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
     def _on_create_backup_action(self, event: ops.ActionEvent) -> None:
         """Handle the create-backup action event."""
-        # TODO: Implement the logic to create a backup, placeholder for testing the library
         target = event.params["target"]
+        check_message = (
+            "You may check for more information using "
+            "`run-cli command='backup describe {backup_name}'` "
+            "and `run-cli command='backup logs {backup_name}'`"
+        )
+
+        if not self.storage_relation or not self.velero.is_storage_configured(
+            self.lightkube_client
+        ):
+            event.fail("Velero Storage Provider is not configured")
+            return
 
         try:
             app, endpoint = target.split(":", 1)
@@ -211,9 +228,99 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         if not backup_spec:
             event.fail(f"No backup spec found for target '{target}'")
             return
-        event.log("Retrieved backup spec")
-        event.log(backup_spec.model_dump_json(indent=2))
-        event.set_results({"status": "success"})
+
+        event.log("Creating a backup...")
+        backup_name_prefix = f"{app}-{endpoint}-"
+        try:
+            backup_name = self.velero.create_backup(
+                self.lightkube_client,
+                backup_name_prefix,
+                backup_spec,
+                self.config.default_volumes_to_fs_backup,
+                labels={
+                    "app": app,
+                    "endpoint": endpoint,
+                },
+                annotations={
+                    "created-at": str(round(time.time())),
+                },
+            )
+            event.log(f"Backup '{backup_name}' created successfully.")
+            event.log(check_message.format(backup_name=backup_name))
+            event.set_results({"status": "success", "backup-name": backup_name})
+        except VeleroBackupStatusError as ve:
+            event.log(check_message.format(backup_name=ve.name))
+            event.fail(f"Velero Backup failed: {ve.reason}")
+        except (VeleroError, ApiError) as e:
+            event.fail("%s" % e)
+            return
+
+    def on_list_backups_action(self, event: ops.ActionEvent) -> None:
+        """Handle the list-backups action event."""
+        app = event.params.get("app", None)
+        endpoint = event.params.get("endpoint", None)
+
+        if not self.storage_relation or not self.velero.is_storage_configured(
+            self.lightkube_client
+        ):
+            event.fail("Velero Storage Provider is not configured")
+            return
+
+        if app is None and endpoint is not None:
+            event.fail("If 'endpoint' is provided, 'app' must also be provided")
+            return
+
+        event.log("Listing backups...")
+        try:
+            backups = self.velero.list_backups(
+                self.lightkube_client, labels={"app": app, "endpoint": endpoint}
+            )
+            event.set_results(
+                {
+                    "status": "success",
+                    "backups": self._backup_list_to_dict(backups),
+                }
+            )
+        except VeleroError as e:
+            event.fail("%s" % e)
+            return
+
+    def on_restore_action(self, event: ops.ActionEvent) -> None:
+        """Handle the restore action event."""
+        backup_uid = event.params["backup-uid"]
+        existing_resource_policy = ExistingResourcePolicy(
+            event.params.get("existing-resource-policy", "none")
+        )
+        check_message = (
+            "You may check for more information using "
+            "`run-cli command='restore describe {restore_name}'` "
+            "and `run-cli command='restore logs {restore_name}'`"
+        )
+
+        if not self.storage_relation or not self.velero.is_storage_configured(
+            self.lightkube_client
+        ):
+            event.fail("Velero Storage Provider is not configured")
+            return
+
+        event.log("Creating a restore...")
+        try:
+            restore_name = self.velero.create_restore(
+                self.lightkube_client,
+                backup_uid,
+                existing_resource_policy,
+                annotations={
+                    "created-at": str(round(time.time())),
+                },
+            )
+            event.log(check_message.format(restore_name=restore_name))
+            event.set_results({"status": "success", "restore-name": restore_name})
+        except VeleroRestoreStatusError as ve:
+            event.log(check_message.format(restore_name=ve.name))
+            event.fail(f"Velero Restore failed: {ve.reason}")
+        except (VeleroError, ApiError) as e:
+            event.fail("%s" % e)
+            return
 
     def _configure_storage_locations(self) -> None:
         """Configure the Velero storage locations.
@@ -313,6 +420,20 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             raise ValueError(f"Unknown status type: {status}")
 
         self.unit.status = status
+
+    def _backup_list_to_dict(self, backups: List[BackupInfo]) -> dict:
+        """Convert a list of BackupInfo objects to a dictionary, printable for action results."""
+        result = {}
+        for b in backups:
+            result[b.uid] = {
+                "name": b.name,
+                "app": b.labels.get("app", "N/A"),
+                "endpoint": b.labels.get("endpoint", "N/A"),
+                "phase": b.phase,
+                "start-timestamp": b.start_timestamp,
+                "completion-timestamp": b.completion_timestamp,
+            }
+        return result
 
     def _validate_config(self) -> None:
         """Check the charm configs and raise error if they are not correct.

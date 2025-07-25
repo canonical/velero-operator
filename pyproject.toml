@@ -43,7 +43,7 @@ lint.extend-ignore = [
 ]
 lint.ignore = ["D107"]
 extend-exclude = ["__pycache__", "*.egg_info"]
-lint.per-file-ignores = {"tests/*" = ["D100","D101","D102","D103","D104"]}
+lint.per-file-ignores = {"tests/*" = ["D100","D101","D102","D103","D104"], "src/velero/crds/*" = ["N815"]}
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10

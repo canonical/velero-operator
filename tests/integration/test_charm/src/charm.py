@@ -30,10 +30,11 @@ class TestCharm(ops.CharmBase):
             self.app.name,
             FIRST_RELATION_NAME,
             spec=VeleroBackupSpec(
-                include_namespaces=["user-namespace", "other-namespace"],
-                include_resources=["deployments", "services"],
-                label_selector={"app": "test"},
+                include_namespaces=["velero-integration-tests"],
+                include_resources=["deployments", "persistentvolumeclaims", "pods"],
+                label_selector={"app": "dummy"},
                 ttl="24h5m5s",
+                include_cluster_resources=True,
             ),
         )
 
@@ -42,11 +43,10 @@ class TestCharm(ops.CharmBase):
             self.app.name,
             SECOND_RELATION_NAME,
             spec=VeleroBackupSpec(
-                exclude_namespaces=["excluded-namespace"],
-                exclude_resources=["pods"],
-                label_selector={"tier": "test"},
+                include_namespaces=["velero-integration-tests"],
+                exclude_resources=["deployments", "persistentvolumeclaims", "pods"],
                 ttl="12h30m",
-                include_cluster_resources=True,
+                include_cluster_resources=False,
             ),
         )
 
