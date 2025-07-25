@@ -160,7 +160,7 @@ async def test_relate(ops_test: OpsTest):
 @pytest.mark.abort_on_fail
 async def test_create_backup(ops_test: OpsTest, k8s_test_resources, lightkube_client):
     """Test create-backup action of the velero-operator charm."""
-    logger.info("Testing VeleroBackupProvider getters")
+    logger.info("Testing create-backup action")
     model = get_model(ops_test)
     unit = model.applications[APP_NAME].units[0]
     test_namespace = k8s_test_resources["namespace"].metadata.name
