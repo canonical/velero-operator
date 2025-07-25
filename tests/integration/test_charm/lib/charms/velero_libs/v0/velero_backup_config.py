@@ -39,8 +39,8 @@ class SomeCharm(CharmBase):
     # ...
     self.user_workload_backup = VeleroBackupRequirer(
         self,
-        app="kubeflow",
-        endpoint="user-workloads-backup",
+        app_name="kubeflow",
+        relation_name="user-workloads-backup",
         spec=VeleroBackupSpec(
             include_namespaces=["user-namespace],
             include_resources=["persistentvolumeclaims", "services", "deployments"],
@@ -52,9 +52,9 @@ class SomeCharm(CharmBase):
 
 import logging
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
-from ops import EventBase
+from ops import BoundEvent, EventBase
 from ops.charm import CharmBase
 from ops.framework import Object
 from pydantic import BaseModel
@@ -168,7 +168,12 @@ class VeleroBackupRequirer(Object):
     """Requirer class for the Velero backup configuration relation."""
 
     def __init__(
-        self, charm: CharmBase, app_name: str, relation_name: str, spec: VeleroBackupSpec
+        self,
+        charm: CharmBase,
+        app_name: str,
+        relation_name: str,
+        spec: VeleroBackupSpec,
+        refresh_event: Optional[Union[BoundEvent, List[BoundEvent]]] = None,
     ):
         """Intialize the requirer with the specified backup configuration.
 
@@ -177,6 +182,8 @@ class VeleroBackupRequirer(Object):
             app_name (str): The name of the application for which the backup is configured
             relation_name (str): The name of the relation. (from metadata.yaml)
             spec (VeleroBackupSpec): The backup specification to be used
+            refresh_event (Optional[Union[BoundEvent, List[BoundEvent]]]):
+                Optional event(s) to trigger data sending.
         """
         super().__init__(charm, relation_name)
         self._charm = charm
@@ -189,6 +196,12 @@ class VeleroBackupRequirer(Object):
             self._charm.on[self._relation_name].relation_created, self._send_data
         )
         self.framework.observe(self._charm.on.upgrade_charm, self._send_data)
+
+        if refresh_event:
+            if not isinstance(refresh_event, (tuple, list)):
+                refresh_event = [refresh_event]
+            for event in refresh_event:
+                self.framework.observe(event, self._send_data)
 
     def _send_data(self, event: EventBase):
         """Handle any event where we should send data to the relation."""

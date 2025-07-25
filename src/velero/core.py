@@ -1050,7 +1050,7 @@ class Velero:
         def check_backup() -> None:
             backup = kube_client.get(Backup, name=name, namespace=namespace)
             if not backup.status or not backup.status.phase:
-                raise VeleroBackupStatusError(name=name, reason="No status or phase present")
+                raise VeleroStatusError(f"Velero Backup '{name}' has no status or phase")
 
             if backup.status.phase == "Completed":
                 return
@@ -1090,7 +1090,7 @@ class Velero:
         def check_restore() -> None:
             restore = kube_client.get(Restore, name=name, namespace=namespace)
             if not restore.status or not restore.status.phase:
-                raise VeleroRestoreStatusError(name=name, reason="No status or phase present")
+                raise VeleroStatusError(f"Velero Restore '{name}' has no status or phase")
 
             if restore.status.phase == "Completed":
                 return
