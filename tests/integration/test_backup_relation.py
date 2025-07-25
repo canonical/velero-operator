@@ -5,6 +5,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime
 
 import pytest
 from helpers import (
@@ -236,7 +237,16 @@ async def test_create_restore(ops_test: OpsTest, k8s_test_resources, lightkube_c
     logger.info("Getting current backups")
     result = await run_charm_action(unit, "list-backups", app=TEST_APP_NAME)
     assert len(result["backups"]) > 0, "No backups found"
-    backup_uids = list(result["backups"].keys())
+    logger.info("Backups found: %s", result["backups"])
+
+    backups = result["backups"]
+    backup_uids = [
+        uid
+        for uid, _ in sorted(
+            backups.items(),
+            key=lambda item: datetime.strptime(item[1]["start-timestamp"], "%Y-%m-%dT%H:%M:%SZ"),
+        )
+    ]
 
     logger.info("Creating restores for each backup")
     for backup_uid in backup_uids:

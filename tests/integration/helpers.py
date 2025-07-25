@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Optional, Type
 
 import yaml
+from juju.action import Action
 from juju.application import Application
 from juju.model import Model
 from juju.unit import Unit
@@ -89,9 +90,9 @@ async def run_charm_action(unit: Unit, charm_action: str, **params) -> dict:
     Returns:
         The results of the action.
     """
-    action = await unit.run_action(charm_action, **params)
+    action: Action = await unit.run_action(charm_action, **params)
     action = await action.wait()
-    assert action.status == "completed", f"Action {charm_action} failed: {action}"
+    assert action.status == "completed", f"Action {charm_action} failed: {action.results}"
     return action.results
 
 
