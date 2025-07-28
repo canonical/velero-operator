@@ -42,9 +42,13 @@ class SomeCharm(CharmBase):
         app_name="kubeflow",
         relation_name="user-workloads-backup",
         spec=VeleroBackupSpec(
-            include_namespaces=["user-namespace],
+            include_namespaces=["user-namespace"],
             include_resources=["persistentvolumeclaims", "services", "deployments"],
+            ttl=str(self.config["ttl"]),
         )
+        # Optional, if you want to refresh the data on custom events
+        # In this case, the TTL will be refreshed in the databag on config_changed event
+        refresh_event=[self.on.config_changed]
     )
     # ...
 ```
