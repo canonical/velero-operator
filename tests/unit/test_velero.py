@@ -1230,10 +1230,9 @@ def test_check_velero_backup_no_status(mock_lightkube_client):
     mock_backup.status = None
     mock_lightkube_client.get.return_value = mock_backup
 
-    with pytest.raises(VeleroBackupStatusError) as ve:
+    with pytest.raises(VeleroStatusError) as ve:
         Velero.check_velero_backup(mock_lightkube_client, "velero", "backup")
-    assert ve.value.name == "backup"
-    assert ve.value.reason == "No status or phase present"
+    assert str(ve.value) == "Velero Backup 'backup' has no status or phase"
 
 
 def test_check_velero_backup_api_error(mock_lightkube_client):
@@ -1353,10 +1352,9 @@ def test_check_velero_restore_no_status(mock_lightkube_client):
     mock_restore.status = None
     mock_lightkube_client.get.return_value = mock_restore
 
-    with pytest.raises(VeleroRestoreStatusError) as ve:
+    with pytest.raises(VeleroStatusError) as ve:
         Velero.check_velero_restore(mock_lightkube_client, "velero", "restore")
-    assert ve.value.name == "restore"
-    assert ve.value.reason == "No status or phase present"
+    assert str(ve.value) == "Velero Restore 'restore' has no status or phase"
 
 
 def test_check_velero_restore_api_error(mock_lightkube_client):

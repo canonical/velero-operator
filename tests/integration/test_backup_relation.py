@@ -5,6 +5,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime
 
 import pytest
 from helpers import (
@@ -158,9 +159,32 @@ async def test_relate(ops_test: OpsTest):
 
 
 @pytest.mark.abort_on_fail
+async def test_refresh_event(ops_test: OpsTest):
+    """Test the refresh event for the VeleroBackupRequirer."""
+    logger.info("Testing refresh event for VeleroBackupRequirer")
+    model = get_model(ops_test)
+    app = model.applications[TEST_APP_NAME]
+
+    await app.set_config({"ttl": "48h"})
+    async with ops_test.fast_forward(fast_interval="30s"):
+        await model.wait_for_idle(
+            apps=[TEST_APP_NAME],
+            status="active",
+            timeout=TIMEOUT,
+        )
+
+    application_data = await get_application_data(
+        ops_test, APP_NAME, APP_RELATION_NAME, TEST_APP_FIRST_RELATION_NAME
+    )
+    assert "spec" in application_data
+    spec = json.loads(application_data["spec"])
+    assert spec["ttl"] == "48h"
+
+
+@pytest.mark.abort_on_fail
 async def test_create_backup(ops_test: OpsTest, k8s_test_resources, lightkube_client):
     """Test create-backup action of the velero-operator charm."""
-    logger.info("Testing VeleroBackupProvider getters")
+    logger.info("Testing create-backup action")
     model = get_model(ops_test)
     unit = model.applications[APP_NAME].units[0]
     test_namespace = k8s_test_resources["namespace"].metadata.name
@@ -236,7 +260,16 @@ async def test_create_restore(ops_test: OpsTest, k8s_test_resources, lightkube_c
     logger.info("Getting current backups")
     result = await run_charm_action(unit, "list-backups", app=TEST_APP_NAME)
     assert len(result["backups"]) > 0, "No backups found"
-    backup_uids = list(result["backups"].keys())
+    logger.info("Backups found: %s", result["backups"])
+
+    backups = result["backups"]
+    backup_uids = [
+        uid
+        for uid, _ in sorted(
+            backups.items(),
+            key=lambda item: datetime.strptime(item[1]["start-timestamp"], "%Y-%m-%dT%H:%M:%SZ"),
+        )
+    ]
 
     logger.info("Creating restores for each backup")
     for backup_uid in backup_uids:

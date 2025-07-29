@@ -14,6 +14,13 @@ description: |
 summary: |
   The charm is only meant to be used for testing of the velero_backup_config lib in this repository.
 
+config:
+  options:
+    ttl:
+      description: "Test TTL config"
+      default: "24h5m5s"
+      type: string
+
 requires:
   first-velero-backup-config:
     interface: velero_backup_config

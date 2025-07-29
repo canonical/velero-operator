@@ -33,9 +33,10 @@ class TestCharm(ops.CharmBase):
                 include_namespaces=["velero-integration-tests"],
                 include_resources=["deployments", "persistentvolumeclaims", "pods"],
                 label_selector={"app": "dummy"},
-                ttl="24h5m5s",
+                ttl=str(self.config["ttl"]),
                 include_cluster_resources=True,
             ),
+            refresh_event=[self.on.config_changed],
         )
 
         self._second_config = VeleroBackupRequirer(
@@ -51,6 +52,7 @@ class TestCharm(ops.CharmBase):
         )
 
         self.framework.observe(self.on.start, self._on_start)
+        self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(
             self.on[FIRST_RELATION_NAME].relation_joined, self._on_relation_joined
         )
@@ -63,6 +65,10 @@ class TestCharm(ops.CharmBase):
         self.framework.observe(
             self.on[SECOND_RELATION_NAME].relation_broken, self._on_relation_broken
         )
+
+    def _on_config_changed(self, event: ops.ConfigChangedEvent):
+        """Handle the config changed event."""
+        logger.info("Config changed: %s", self.config)
 
     def _on_start(self, _) -> None:
         """Handle the start event."""
