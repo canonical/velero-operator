@@ -4,9 +4,9 @@ This library implements the Requirer and Provider roles for the `velero_backup_c
 interface. It is used by client charms to declare backup specifications, and by the Velero Operator
 charm to consume them and execute backup and restore operations.
 
-The `velero_backup_config` interface allows a charm (the requirer) to provide a declarative
+The `velero_backup_config` interface allows a charm (the provider) to provide a declarative
 description of what Kubernetes resources should be included in a backup. These specifications are
-sent to the Velero Operator charm (the provider), which executes the backup using the Velero CLI
+sent to the Velero Operator charm (the requirer), which executes the backup using the Velero CLI
 and Kubernetes CRDs.
 
 This interface follows a least-privilege model: client charms do not manipulate cluster resources
@@ -30,17 +30,18 @@ Then in your charm, do:
 
 ```python
 from charms.velero_operatpr.v0.velero_backup_config import (
-    VeleroBackupRequirer,
+    VeleroBackupProvider,
     VeleroBackupSpec,
 )
 
 class SomeCharm(CharmBase):
   def __init__(self, *args):
     # ...
-    self.user_workload_backup = VeleroBackupRequirer(
+    self.user_workload_backup = VeleroBackupProvider(
         self,
         app_name="kubeflow",
         relation_name="user-workloads-backup",
+        model="kubeflow",
         spec=VeleroBackupSpec(
             include_namespaces=["user-namespace"],
             include_resources=["persistentvolumeclaims", "services", "deployments"],
@@ -79,6 +80,7 @@ DURATION_REGEX = r"^(?=.*\d)(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$"
 SPEC_FIELD = "spec"
 APP_FIELD = "app"
 RELATION_FIELD = "relation_name"
+MODEL_FIELD = "model"
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +94,9 @@ class VeleroBackupSpec(BaseModel):
         exclude_namespaces (Optional[List[str]]): Namespaces to exclude from the backup.
         exclude_resources (Optional[List[str]]): Resources to exclude from the backup.
         label_selector (Optional[Dict[str, str]]): Label selector for filtering resources.
-        include_cluster_resources (bool): Whether to include cluster-wide resources in the backup.
+        include_cluster_resources (Optional[bool]):
+            Whether to include cluster-wide resources in the backup.
+            Defaults to None (auto detect based on resources).
         ttl (Optional[str]): TTL for the backup, if applicable. Example: "24h", "10m10s", etc.
     """
 
@@ -102,7 +106,7 @@ class VeleroBackupSpec(BaseModel):
     exclude_resources: Optional[List[str]] = None
     label_selector: Optional[Dict[str, str]] = None
     ttl: Optional[str] = None
-    include_cluster_resources: bool = False
+    include_cluster_resources: Optional[bool] = None
 
     def __post_init__(self):
         """Validate the specification."""
@@ -112,7 +116,7 @@ class VeleroBackupSpec(BaseModel):
             )
 
 
-class VeleroBackupProvider(Object):
+class VeleroBackupRequier(Object):
     """Provider class for the Velero backup configuration relation."""
 
     def __init__(self, charm: CharmBase, relation_name: str):
@@ -126,12 +130,15 @@ class VeleroBackupProvider(Object):
         self._charm = charm
         self._relation_name = relation_name
 
-    def get_backup_spec(self, app_name: str, endpoint: str) -> Optional[VeleroBackupSpec]:
+    def get_backup_spec(
+        self, app_name: str, endpoint: str, model: str
+    ) -> Optional[VeleroBackupSpec]:
         """Get a VeleroBackupSpec for a given (app, endpoint).
 
         Args:
             app_name (str): The name of the application for which the backup is configured
             endpoint (str): The name of the relation. (from metadata.yaml)
+            model (str): The model name of the application.
 
         Returns:
             Optional[VeleroBackupSpec]: The backup specification if available, otherwise None.
@@ -139,14 +146,13 @@ class VeleroBackupProvider(Object):
         relations = self.model.relations[self._relation_name]
 
         for relation in relations:
-            related_app = relation.app
-            if related_app.name != app_name:
-                continue
-
-            related_app_endpoint = relation.data[related_app].get(RELATION_FIELD, None)
-
-            if related_app_endpoint and related_app_endpoint == endpoint:
-                json_data = relation.data[relation.app].get(SPEC_FIELD, "{}")
+            data = relation.data.get(relation.app, {})
+            if (
+                data.get(APP_FIELD) == app_name
+                and data.get(MODEL_FIELD) == model
+                and data.get(RELATION_FIELD) == endpoint
+            ):
+                json_data = data.get(SPEC_FIELD, "{}")
                 return VeleroBackupSpec.model_validate_json(json_data)
 
         logger.warning("No backup spec found for app '%s' and endpoint '%s'", app_name, endpoint)
@@ -168,23 +174,25 @@ class VeleroBackupProvider(Object):
         return specs
 
 
-class VeleroBackupRequirer(Object):
-    """Requirer class for the Velero backup configuration relation."""
+class VeleroBackupProvider(Object):
+    """Provider class for the Velero backup configuration relation."""
 
     def __init__(
         self,
         charm: CharmBase,
         app_name: str,
         relation_name: str,
+        model: str,
         spec: VeleroBackupSpec,
         refresh_event: Optional[Union[BoundEvent, List[BoundEvent]]] = None,
     ):
-        """Intialize the requirer with the specified backup configuration.
+        """Intialize the provider with the specified backup configuration.
 
         Args:
             charm (CharmBase): The charm instance that requires backup.
             app_name (str): The name of the application for which the backup is configured
             relation_name (str): The name of the relation. (from metadata.yaml)
+            model (str): The model name of the application.
             spec (VeleroBackupSpec): The backup specification to be used
             refresh_event (Optional[Union[BoundEvent, List[BoundEvent]]]):
                 Optional event(s) to trigger data sending.
@@ -194,6 +202,7 @@ class VeleroBackupRequirer(Object):
         self._app_name = app_name
         self._relation_name = relation_name
         self._spec = spec
+        self._model = model
 
         self.framework.observe(self._charm.on.leader_elected, self._send_data)
         self.framework.observe(
@@ -228,6 +237,7 @@ class VeleroBackupRequirer(Object):
         for relation in relations:
             relation.data[self._charm.app].update(
                 {
+                    MODEL_FIELD: self._model,
                     APP_FIELD: self._app_name,
                     RELATION_FIELD: self._relation_name,
                     SPEC_FIELD: self._spec.model_dump_json(),
