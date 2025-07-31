@@ -23,13 +23,13 @@ To get started using the library, fetch the library with `charmcraft`.
 
 ```shell
 cd some-charm
-charmcraft fetch-lib charms.velero_operator.v0.velero_backup_config
+charmcraft fetch-lib charms.velero_libs.v0.velero_backup_config
 ```
 
 Then in your charm, do:
 
 ```python
-from charms.velero_operatpr.v0.velero_backup_config import (
+from charms.velero_libs.v0.velero_backup_config import (
     VeleroBackupProvider,
     VeleroBackupSpec,
 )
@@ -117,10 +117,10 @@ class VeleroBackupSpec(BaseModel):
 
 
 class VeleroBackupRequier(Object):
-    """Provider class for the Velero backup configuration relation."""
+    """Requirer class for the Velero backup configuration relation."""
 
     def __init__(self, charm: CharmBase, relation_name: str):
-        """Initialize the provider and binds to relation events.
+        """Initialize the requirer.
 
         Args:
             charm (CharmBase): The charm instance that provides backup configuration.
@@ -133,7 +133,7 @@ class VeleroBackupRequier(Object):
     def get_backup_spec(
         self, app_name: str, endpoint: str, model: str
     ) -> Optional[VeleroBackupSpec]:
-        """Get a VeleroBackupSpec for a given (app, endpoint).
+        """Get a VeleroBackupSpec for a given (app, endpoint, model).
 
         Args:
             app_name (str): The name of the application for which the backup is configured
@@ -220,7 +220,7 @@ class VeleroBackupProvider(Object):
         """Handle any event where we should send data to the relation."""
         if not self._charm.model.unit.is_leader():
             logger.warning(
-                "VeleroBackupRequirer handled send_data event when it is not a leader. "
+                "VeleroBackupProvider handled send_data event when it is not a leader. "
                 "Skiping event - no data sent"
             )
             return
@@ -229,7 +229,7 @@ class VeleroBackupProvider(Object):
 
         if not relations:
             logger.warning(
-                "VeleroBackupRequirer handled send_data event but no relation '%s' found "
+                "VeleroBackupProvider handled send_data event but no relation '%s' found "
                 "Skiping event - no data sent",
                 self._relation_name,
             )
