@@ -664,7 +664,8 @@ def test_run_create_backup_action_success(
 ):
     """Test the run_backup_action handler."""
     # Arrange
-    command = "test-app:test-endpoint"
+    target = "test-app:test-endpoint"
+    model = "test-model"
     with (
         patch.object(
             VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
@@ -678,6 +679,7 @@ def test_run_create_backup_action_success(
             remote_app_name="test-app",
             remote_app_data={
                 "app": "test-app",
+                "model": "test-model",
                 "relation_name": "test-endpoint",
                 "spec": '{"include_namespaces": ["test-namespace"]}',
             },
@@ -685,7 +687,7 @@ def test_run_create_backup_action_success(
 
         # Act
         ctx.run(
-            ctx.on.action("create-backup", params={"target": command}),
+            ctx.on.action("create-backup", params={"target": target, "model": model}),
             testing.State(relations=[relation]),
         )
 
@@ -695,16 +697,18 @@ def test_run_create_backup_action_success(
 
 
 @pytest.mark.parametrize(
-    "command,relation,storage_configured,backup_side_effect,expected_exc",
+    "target,model,relation,storage_configured,backup_side_effect,expected_exc",
     [
         # Storage not configured
         (
             "test-app:test-endpoint",
+            "test-model",
             Relation(
                 endpoint=VELERO_BACKUP_ENDPOINT,
                 remote_app_name="test-app",
                 remote_app_data={
                     "app": "test-app",
+                    "model": "test-model",
                     "relation_name": "test-endpoint",
                     "spec": '{"include_namespaces": ["test-namespace"]}',
                 },
@@ -716,6 +720,7 @@ def test_run_create_backup_action_success(
         # Invalid target (no relation)
         (
             "invalid-target",
+            "test-model",
             None,
             True,
             None,
@@ -724,7 +729,25 @@ def test_run_create_backup_action_success(
         # No relation provided at all (valid target, but relation not present)
         (
             "test-app:test-endpoint",
+            "test-model",
             None,
+            True,
+            None,
+            testing.ActionFailed,
+        ),
+        # No backup spec with the provided model
+        (
+            "test-app:test-endpoint",
+            "test-model",
+            Relation(
+                endpoint=VELERO_BACKUP_ENDPOINT,
+                remote_app_name="test-app",
+                remote_app_data={
+                    "app": "test-app",
+                    "relation_name": "test-endpoint",
+                    "model": "test-model-other",
+                },
+            ),
             True,
             None,
             testing.ActionFailed,
@@ -732,12 +755,14 @@ def test_run_create_backup_action_success(
         # Backup fails (VeleroStatusError)
         (
             "test-app:test-endpoint",
+            "test-model",
             Relation(
                 endpoint=VELERO_BACKUP_ENDPOINT,
                 remote_app_name="test-app",
                 remote_app_data={
                     "app": "test-app",
                     "relation_name": "test-endpoint",
+                    "model": "test-model",
                     "spec": '{"include_namespaces": ["test-namespace"]}',
                 },
             ),
@@ -748,12 +773,14 @@ def test_run_create_backup_action_success(
         # Backup creation fails (VeleroError)
         (
             "test-app:test-endpoint",
+            "test-model",
             Relation(
                 endpoint=VELERO_BACKUP_ENDPOINT,
                 remote_app_name="test-app",
                 remote_app_data={
                     "app": "test-app",
                     "relation_name": "test-endpoint",
+                    "model": "test-model",
                     "spec": '{"include_namespaces": ["test-namespace"]}',
                 },
             ),
@@ -764,7 +791,8 @@ def test_run_create_backup_action_success(
     ],
 )
 def test_run_create_backup_action_failed(
-    command,
+    target,
+    model,
     relation,
     storage_configured,
     backup_side_effect,
@@ -785,7 +813,7 @@ def test_run_create_backup_action_failed(
 
         with pytest.raises(expected_exc):
             ctx.run(
-                ctx.on.action("create-backup", params={"target": command}),
+                ctx.on.action("create-backup", params={"target": target, "model": model}),
                 testing.State(relations=relations),
             )
 
@@ -880,6 +908,7 @@ def test_run_list_backups_action_success(
                 labels={
                     "app": "app1",
                     "endpoint": "endpoint1",
+                    "model": "model1",
                 },
                 annotations={},
                 phase="Completed",
@@ -909,6 +938,7 @@ def test_run_list_backups_action_success(
                 "name": "backup1",
                 "app": "app1",
                 "endpoint": "endpoint1",
+                "model": "model1",
                 "phase": "Completed",
                 "start-timestamp": "2023-01-01T00:00:00Z",
                 "completion-timestamp": None,
@@ -917,6 +947,7 @@ def test_run_list_backups_action_success(
                 "name": "backup2",
                 "app": "app2",
                 "endpoint": "N/A",
+                "model": "N/A",
                 "phase": "InProgress",
                 "start-timestamp": "2023-01-02T00:00:00Z",
                 "completion-timestamp": None,

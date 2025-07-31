@@ -21,7 +21,7 @@ config:
       default: "24h5m5s"
       type: string
 
-requires:
+provides:
   first-velero-backup-config:
     interface: velero_backup_config
   second-velero-backup-config:

@@ -8,7 +8,7 @@ import logging
 
 import ops
 from charms.velero_libs.v0.velero_backup_config import (
-    VeleroBackupRequirer,
+    VeleroBackupProvider,
     VeleroBackupSpec,
 )
 
@@ -25,27 +25,35 @@ class TestCharm(ops.CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
 
-        self._first_config = VeleroBackupRequirer(
+        self._first_config = VeleroBackupProvider(
             self,
-            self.app.name,
             FIRST_RELATION_NAME,
             spec=VeleroBackupSpec(
                 include_namespaces=["velero-integration-tests"],
-                include_resources=["deployments", "persistentvolumeclaims", "pods"],
+                include_resources=[
+                    "deployments",
+                    "persistentvolumeclaims",
+                    "pods",
+                    "persistentvolumes",
+                ],
                 label_selector={"app": "dummy"},
                 ttl=str(self.config["ttl"]),
-                include_cluster_resources=True,
+                include_cluster_resources=None,
             ),
             refresh_event=[self.on.config_changed],
         )
 
-        self._second_config = VeleroBackupRequirer(
+        self._second_config = VeleroBackupProvider(
             self,
-            self.app.name,
             SECOND_RELATION_NAME,
             spec=VeleroBackupSpec(
                 include_namespaces=["velero-integration-tests"],
-                exclude_resources=["deployments", "persistentvolumeclaims", "pods"],
+                exclude_resources=[
+                    "deployments",
+                    "persistentvolumeclaims",
+                    "pods",
+                    "persistentvolumes",
+                ],
                 ttl="12h30m",
                 include_cluster_resources=False,
             ),

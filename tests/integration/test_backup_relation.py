@@ -130,12 +130,17 @@ async def test_relate(ops_test: OpsTest):
         TEST_APP_FIRST_RELATION_NAME,
         {
             "include_namespaces": ["velero-integration-tests"],
-            "include_resources": ["deployments", "persistentvolumeclaims", "pods"],
+            "include_resources": [
+                "deployments",
+                "persistentvolumeclaims",
+                "pods",
+                "persistentvolumes",
+            ],
             "label_selector": {"app": "dummy"},
             "ttl": "24h5m5s",
             "exclude_namespaces": None,
             "exclude_resources": None,
-            "include_cluster_resources": True,
+            "include_cluster_resources": None,
         },
     )
     await integrate_and_check(
@@ -145,7 +150,12 @@ async def test_relate(ops_test: OpsTest):
             "include_resources": None,
             "ttl": "12h30m",
             "exclude_namespaces": None,
-            "exclude_resources": ["deployments", "persistentvolumeclaims", "pods"],
+            "exclude_resources": [
+                "deployments",
+                "persistentvolumeclaims",
+                "pods",
+                "persistentvolumes",
+            ],
             "label_selector": None,
             "include_cluster_resources": False,
         },
