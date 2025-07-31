@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from config import CharmConfig
 from constants import (
     VELERO_ALLOWED_SUBCOMMANDS,
+    VELERO_BACKUPS_ENDPOINT,
     VELERO_BINARY_PATH,
     VELERO_METRICS_PATH,
     VELERO_METRICS_PORT,
@@ -82,7 +83,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             ],
         )
 
-        self._backup_configs = VeleroBackupRequier(self, "velero-backups")
+        self._backup_configs = VeleroBackupRequier(self, VELERO_BACKUPS_ENDPOINT)
 
         self.framework.observe(self.on.install, self._reconcile)
         self.framework.observe(self.on.update_status, self._reconcile)

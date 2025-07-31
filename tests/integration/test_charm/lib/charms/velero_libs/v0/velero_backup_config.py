@@ -39,9 +39,7 @@ class SomeCharm(CharmBase):
     # ...
     self.user_workload_backup = VeleroBackupProvider(
         self,
-        app_name="kubeflow",
         relation_name="user-workloads-backup",
-        model="kubeflow",
         spec=VeleroBackupSpec(
             include_namespaces=["user-namespace"],
             include_resources=["persistentvolumeclaims", "services", "deployments"],
@@ -123,7 +121,7 @@ class VeleroBackupRequier(Object):
         """Initialize the requirer.
 
         Args:
-            charm (CharmBase): The charm instance that provides backup configuration.
+            charm (CharmBase): The charm instance that requires backup configuration.
             relation_name (str): The name of the relation. (from metadata.yaml)
         """
         super().__init__(charm, relation_name)
@@ -180,29 +178,25 @@ class VeleroBackupProvider(Object):
     def __init__(
         self,
         charm: CharmBase,
-        app_name: str,
         relation_name: str,
-        model: str,
         spec: VeleroBackupSpec,
         refresh_event: Optional[Union[BoundEvent, List[BoundEvent]]] = None,
     ):
         """Intialize the provider with the specified backup configuration.
 
         Args:
-            charm (CharmBase): The charm instance that requires backup.
-            app_name (str): The name of the application for which the backup is configured
+            charm (CharmBase): The charm instance that provides backup.
             relation_name (str): The name of the relation. (from metadata.yaml)
-            model (str): The model name of the application.
             spec (VeleroBackupSpec): The backup specification to be used
             refresh_event (Optional[Union[BoundEvent, List[BoundEvent]]]):
                 Optional event(s) to trigger data sending.
         """
         super().__init__(charm, relation_name)
         self._charm = charm
-        self._app_name = app_name
+        self._app_name = self._charm.app.name
+        self._model = self._charm.model.name
         self._relation_name = relation_name
         self._spec = spec
-        self._model = model
 
         self.framework.observe(self._charm.on.leader_elected, self._send_data)
         self.framework.observe(

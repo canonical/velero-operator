@@ -27,9 +27,7 @@ class TestCharm(ops.CharmBase):
 
         self._first_config = VeleroBackupProvider(
             self,
-            self.app.name,
             FIRST_RELATION_NAME,
-            self.model.name,
             spec=VeleroBackupSpec(
                 include_namespaces=["velero-integration-tests"],
                 include_resources=[
@@ -47,9 +45,7 @@ class TestCharm(ops.CharmBase):
 
         self._second_config = VeleroBackupProvider(
             self,
-            self.app.name,
             SECOND_RELATION_NAME,
-            self.model.name,
             spec=VeleroBackupSpec(
                 include_namespaces=["velero-integration-tests"],
                 exclude_resources=[
