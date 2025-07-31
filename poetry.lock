@@ -1743,41 +1743,41 @@ importlib-metadata = ">=6.0,<8.7.0"
 
 [[package]]
 name = "ops"
-version = "3.0.0"
+version = "3.1.0"
 description = "The Python library behind great charms"
 optional = false
 python-versions = ">=3.10"
 groups = ["main", "integration", "unit"]
 files = [
-    {file = "ops-3.0.0-py3-none-any.whl", hash = "sha256:f71d62c1d5ae58c01acc37fb330c6aa13aa1e2913fc44519b5ac31b93b9181ec"},
-    {file = "ops-3.0.0.tar.gz", hash = "sha256:f4709f7699a2b8b0aaa3a6ad891fb8e4925792121fcb762ef264d24f87675680"},
+    {file = "ops-3.1.0-py3-none-any.whl", hash = "sha256:4553052c881c9e2ba76209dc01be48915330e4d05287fca0fc5ae05ae0d20f0a"},
+    {file = "ops-3.1.0.tar.gz", hash = "sha256:49bc8ce4f24815dae57aec752d7d0c9cd34e7942c29966f29a9f9774d1b97512"},
 ]
 
 [package.dependencies]
 importlib-metadata = "*"
 opentelemetry-api = ">=1.0,<2.0"
-ops-scenario = {version = "8.0.0", optional = true, markers = "extra == \"testing\""}
+ops-scenario = {version = "8.1.0", optional = true, markers = "extra == \"testing\""}
 PyYAML = "==6.*"
 websocket-client = "==1.*"
 
 [package.extras]
-testing = ["ops-scenario (==8.0.0)"]
-tracing = ["ops-tracing (==3.0.0)"]
+testing = ["ops-scenario (==8.1.0)"]
+tracing = ["ops-tracing (==3.1.0)"]
 
 [[package]]
 name = "ops-scenario"
-version = "8.0.0"
+version = "8.1.0"
 description = "Python library providing a state-transition testing API for Operator Framework charms."
 optional = false
 python-versions = ">=3.10"
 groups = ["unit"]
 files = [
-    {file = "ops_scenario-8.0.0-py3-none-any.whl", hash = "sha256:5d52e7162cc7cb2a26c8fd62df3f3fb88668a407af4024c1be6003959c80e2de"},
-    {file = "ops_scenario-8.0.0.tar.gz", hash = "sha256:b358228f3c88ab36f93c467e926c2ef20f16a99578a490a9fd9733eb1eab175c"},
+    {file = "ops_scenario-8.1.0-py3-none-any.whl", hash = "sha256:740df042474bdfed6836be184c9f9cc1f92af7a3a9d2ab234276e4291aa8312c"},
+    {file = "ops_scenario-8.1.0.tar.gz", hash = "sha256:6b199d882710f3950348a885ff3b1d371806cb678f58e2c077b33029c6db9857"},
 ]
 
 [package.dependencies]
-ops = "3.0.0"
+ops = "3.1.0"
 PyYAML = ">=6.0.1"
 
 [[package]]
