@@ -14,7 +14,7 @@ import ops
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.velero_libs.v0.velero_backup_config import VeleroBackupProvider
+from charms.velero_libs.v0.velero_backup_config import VeleroBackupRequier
 from lightkube import ApiError, Client
 from lightkube.resources.rbac_authorization_v1 import ClusterRole
 from pydantic import ValidationError
@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from config import CharmConfig
 from constants import (
     VELERO_ALLOWED_SUBCOMMANDS,
+    VELERO_BACKUPS_ENDPOINT,
     VELERO_BINARY_PATH,
     VELERO_METRICS_PATH,
     VELERO_METRICS_PORT,
@@ -82,7 +83,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             ],
         )
 
-        self._backup_configs = VeleroBackupProvider(self, "velero-backups")
+        self._backup_configs = VeleroBackupRequier(self, VELERO_BACKUPS_ENDPOINT)
 
         self.framework.observe(self.on.install, self._reconcile)
         self.framework.observe(self.on.update_status, self._reconcile)
@@ -206,6 +207,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
     def _on_create_backup_action(self, event: ops.ActionEvent) -> None:
         """Handle the create-backup action event."""
         target = event.params["target"]
+        model = event.params.get("model", self.model.name)
         check_message = (
             "You may check for more information using "
             "`run-cli command='backup describe {backup_name}'` "
@@ -224,9 +226,9 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             event.fail("Invalid target format. Use 'app:endpoint'")
             return
 
-        backup_spec = self._backup_configs.get_backup_spec(app, endpoint)
+        backup_spec = self._backup_configs.get_backup_spec(app, endpoint, model)
         if not backup_spec:
-            event.fail(f"No backup spec found for target '{target}'")
+            event.fail(f"No backup spec found for target '{target}' in model '{model}'")
             return
 
         event.log("Creating a backup...")
@@ -240,6 +242,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 labels={
                     "app": app,
                     "endpoint": endpoint,
+                    "model": model,
                 },
                 annotations={
                     "created-at": str(round(time.time())),
@@ -259,6 +262,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         """Handle the list-backups action event."""
         app = event.params.get("app", None)
         endpoint = event.params.get("endpoint", None)
+        model = event.params.get("model", None)
 
         if not self.storage_relation or not self.velero.is_storage_configured(
             self.lightkube_client
@@ -273,7 +277,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         event.log("Listing backups...")
         try:
             backups = self.velero.list_backups(
-                self.lightkube_client, labels={"app": app, "endpoint": endpoint}
+                self.lightkube_client, labels={"app": app, "endpoint": endpoint, "model": model}
             )
             event.set_results(
                 {
@@ -429,6 +433,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 "name": b.name,
                 "app": b.labels.get("app", "N/A"),
                 "endpoint": b.labels.get("endpoint", "N/A"),
+                "model": b.labels.get("model", "N/A"),
                 "phase": b.phase,
                 "start-timestamp": b.start_timestamp,
                 "completion-timestamp": b.completion_timestamp,

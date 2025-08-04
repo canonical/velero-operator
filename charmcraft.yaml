@@ -82,6 +82,13 @@ actions:
         type: string
         examples:
         - "kubeflow-velero:user-workload-backups"
+      model:
+        description: |
+          The model of the target app to use for creating the backup.
+          If not provided, it will use the current model.
+        type: string
+        examples:
+        - "kubeflow"
     required:
     - target
     additionalProperties: false
@@ -103,6 +110,13 @@ actions:
         type: string
         examples:
         - "user-workload-backups"
+      model:
+        description: |
+          Optional model of the target app to use for listing backups.
+          If not provided, it will list backup across all models.
+        type: string
+        examples:
+        - "kubeflow"
     additionalProperties: false
   restore:
     description: Restore a Velero backup using the velero-backups relation.
@@ -153,10 +167,10 @@ requires:
     interface: s3
     limit: 1
     optional: true
+  velero-backups:
+    interface: velero_backup_config
+    optional: true
 
 provides:
   metrics-endpoint:
     interface: prometheus_scrape
-  velero-backups:
-    interface: velero_backup_config
-    optional: true
