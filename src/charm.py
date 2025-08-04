@@ -262,7 +262,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         """Handle the list-backups action event."""
         app = event.params.get("app", None)
         endpoint = event.params.get("endpoint", None)
-        model = event.params.get("model", self.model.name)
+        model = event.params.get("model", None)
 
         if not self.storage_relation or not self.velero.is_storage_configured(
             self.lightkube_client
