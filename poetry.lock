@@ -430,14 +430,14 @@ pycparser = "*"
 
 [[package]]
 name = "charmed-kubeflow-chisme"
-version = "0.4.11"
+version = "0.4.12"
 description = "A collection of helpers for Charms maintained by the Charmed Kubeflow team"
 optional = false
 python-versions = ">=3.6"
 groups = ["integration"]
 files = [
-    {file = "charmed_kubeflow_chisme-0.4.11-py3-none-any.whl", hash = "sha256:efddb3aa8284df667dd04a1406a3a4a79b9ec792c66068ca4c53bae4e0c5f2bf"},
-    {file = "charmed_kubeflow_chisme-0.4.11.tar.gz", hash = "sha256:174ce57d00e1f63847f0525b799741513b29931bfc14064f886af64a17ba515f"},
+    {file = "charmed_kubeflow_chisme-0.4.12-py3-none-any.whl", hash = "sha256:6357f6c0f3936ac3d4edd5f04acc84bfa00493b4e481bac6daecd882c0265b97"},
+    {file = "charmed_kubeflow_chisme-0.4.12.tar.gz", hash = "sha256:ca9d8fbd75ba456018f2f6ae05472bb92cb086f323fe5d418002038763e64068"},
 ]
 
 [package.dependencies]
@@ -445,6 +445,7 @@ deepdiff = "<=6.2.1"
 httpx = "<0.28.0"
 jinja2 = "*"
 juju = "*"
+kubernetes = ">=30.1.0"
 lightkube = ">0.10.0"
 ops = ">1.2.0"
 "ruamel.yaml" = "*"
