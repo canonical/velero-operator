@@ -621,14 +621,14 @@ markers = {fmt = "platform_system == \"Windows\"", integration = "sys_platform =
 
 [[package]]
 name = "cosl"
-version = "1.0.0"
+version = "1.1.0"
 description = "Utils for COS Lite charms"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "cosl-1.0.0-py3-none-any.whl", hash = "sha256:4ed54e818a5614a5164011253c12441cd0bffacfd99c8bd6b5b9740a397e482d"},
-    {file = "cosl-1.0.0.tar.gz", hash = "sha256:5cef884faac1313ae6d234fcd6f40db0cbdd44bcdacfd9a6e9ecf9cede219359"},
+    {file = "cosl-1.1.0-py3-none-any.whl", hash = "sha256:e5313e6753db057b32fd41a493735b9eb152d38d1e2f688e54ef0b974ba99934"},
+    {file = "cosl-1.1.0.tar.gz", hash = "sha256:7a04e32c95cdc2d556bb43517eaadf6fc177bc8449bd9359989a24056b34c9aa"},
 ]
 
 [package.dependencies]
