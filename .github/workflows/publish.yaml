@@ -32,7 +32,7 @@ jobs:
     outputs:
       charm_paths: ${{ steps.get-charm-paths.outputs.charm-paths }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Get paths for all charms in this repo
@@ -50,7 +50,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ inputs.source_branch }}

@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: List
+items:
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: {{ pvc_name }}
+    labels:
+      app: dummy
+  spec:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 100Mi
+
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: dummy-deployment
+    labels:
+      app: dummy
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: dummy
+    template:
+      metadata:
+        labels:
+          app: dummy
+          pvc: {{ pvc_name }}
+      spec:
+        containers:
+        - name: dummy-container
+          image: busybox
+          command:
+          - sh
+          - -c
+          - "date +\"%Y-%m-%d %H:%M:%S\" >> /test-data/{{ test_file }} && sleep 3600"
+          volumeMounts:
+          - name: dummy-volume
+            mountPath: /test-data
+        volumes:
+        - name: dummy-volume
+          persistentVolumeClaim:
+            claimName: {{ pvc_name }}
+
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: dummy-config
+    labels:
+      app: dummy-2
+  data:
+    test-key: "This is a test value for Velero Operator ConfigMap"
+    another-key: "Another value for testing purposes"
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: dummy-service
+    labels:
+        app: dummy
+  spec:
+      type: ClusterIP
+      selector:
+      app: dummy
+      ports:
+      - protocol: TCP
+        port: 80
+        targetPort: 8080

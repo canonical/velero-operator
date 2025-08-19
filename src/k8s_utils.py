@@ -22,6 +22,7 @@ from tenacity import (
 )
 
 from constants import K8S_CHECK_ATTEMPTS, K8S_CHECK_DELAY, K8S_CHECK_OBSERVATIONS
+from velero.crds import Backup
 
 logger = logging.getLogger(__name__)
 
@@ -203,3 +204,39 @@ def k8s_create_cluster_ip_service(
     except ApiError as ae:
         logging.error("Failed to create service '%s' in namespace '%s': %s", name, namespace, ae)
         raise ae
+
+
+def k8s_get_backup_name_by_uid(
+    kube_client: Client,
+    uid: str,
+    namespace: str,
+) -> Optional[str]:
+    """Get the name of a Backup resource by its UID.
+
+    Args:
+        kube_client (Client): The Kubernetes client used to interact with the cluster.
+        uid (str): The UID of the Backup resource.
+        namespace (str): The namespace of the resource if it is a NamespacedResource.
+
+    Returns:
+        str: The resource name if found.
+
+    Raises:
+        ApiError: If the resource cannot be retrieved.
+    """
+    resources = []
+    try:
+        resources = list(kube_client.list(Backup, namespace=namespace))
+    except ApiError as ae:
+        logging.error("Failed to get Backup with UID '%s': %s", uid, ae)
+        raise ae
+
+    for resource in resources:
+        if resource.metadata is None:
+            continue
+        uid_value = resource.metadata.uid
+        name_value = resource.metadata.name
+        if uid_value == uid and name_value is not None:
+            return name_value
+
+    return None

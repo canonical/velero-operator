@@ -1,0 +1,28 @@
+# Copyright 2025 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+type: charm
+platforms:
+  ubuntu@24.04:amd64:
+parts:
+  charm:
+    plugin: charm
+
+name: test-charm-velero
+description: |
+  The application charm used in integration tests.
+summary: |
+  The charm is only meant to be used for testing of the velero_backup_config lib in this repository.
+
+config:
+  options:
+    ttl:
+      description: "Test TTL config"
+      default: "24h5m5s"
+      type: string
+
+provides:
+  first-velero-backup-config:
+    interface: velero_backup_config
+  second-velero-backup-config:
+    interface: velero_backup_config

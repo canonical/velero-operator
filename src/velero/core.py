@@ -5,12 +5,15 @@
 
 import logging
 import subprocess
-from typing import Any, Dict, List
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Union
 
+from charms.velero_libs.v0.velero_backup_config import VeleroBackupSpec
 from lightkube import Client, codecs
 from lightkube.core.exceptions import ApiError, LoadResourceError
 from lightkube.models.apps_v1 import DeploymentCondition
 from lightkube.models.core_v1 import ContainerStatus, ServicePort
+from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.apiextensions_v1 import CustomResourceDefinition
 from lightkube.resources.apps_v1 import DaemonSet, Deployment
 from lightkube.resources.core_v1 import Pod, Secret, Service, ServiceAccount
@@ -18,6 +21,12 @@ from lightkube.resources.rbac_authorization_v1 import ClusterRoleBinding
 from lightkube.types import PatchType
 
 from constants import (
+    K8S_CHECK_ATTEMPTS,
+    K8S_CHECK_DELAY,
+    K8S_CHECK_OBSERVATIONS,
+    K8S_CHECK_VELERO_ATTEMPTS,
+    K8S_CHECK_VELERO_DELAY,
+    K8S_CHECK_VELERO_OBSERVATIONS,
     VELERO_BACKUP_LOCATION_NAME,
     VELERO_BACKUP_LOCATION_RESOURCE,
     VELERO_CLUSTER_ROLE_BINDING_NAME,
@@ -35,14 +44,29 @@ from k8s_utils import (
     K8sResource,
     k8s_create_cluster_ip_service,
     k8s_create_secret,
+    k8s_get_backup_name_by_uid,
     k8s_remove_resource,
     k8s_resource_exists,
     k8s_retry_check,
 )
 
+from .crds import Backup, BackupSpecModel, ExistingResourcePolicy, Restore, RestoreSpecModel
 from .providers import VeleroStorageProvider
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class BackupInfo:
+    """Data class to hold backup information."""
+
+    uid: str
+    name: str
+    labels: Dict[str, str]
+    annotations: Dict[str, str]
+    phase: str
+    start_timestamp: str
+    completion_timestamp: Optional[str] = None
 
 
 class VeleroError(Exception):
@@ -51,6 +75,26 @@ class VeleroError(Exception):
 
 class VeleroStatusError(VeleroError):
     """Exception raised for Velero status errors."""
+
+
+class VeleroBackupStatusError(VeleroStatusError):
+    """Exception raised for Velero backup status errors."""
+
+    def __init__(self, name: str, reason: str) -> None:
+        """Initialize the VeleroBackupStatusError with a name and reason."""
+        super().__init__(f"Velero backup '{name}' failed: {reason}")
+        self.name = name
+        self.reason = reason
+
+
+class VeleroRestoreStatusError(VeleroStatusError):
+    """Exception raised for Velero restore status errors."""
+
+    def __init__(self, name: str, reason: str) -> None:
+        """Initialize the VeleroRestoreStatusError with a name and reason."""
+        super().__init__(f"Velero restore '{name}' failed: {reason}")
+        self.name = name
+        self.reason = reason
 
 
 class VeleroCLIError(VeleroError):
@@ -93,25 +137,15 @@ class Velero:
 
     @property
     def _crds(self) -> List[K8sResource]:
-        """Return the Velero CRDs by parsing the dry-run install YAML output.
+        """Return the Velero CRDs.
 
         Raises:
             VeleroCLIError: If the CRDs cannot be loaded from the dry-run install output.
         """
-        try:
-            output = subprocess.check_output(
-                [self._velero_binary_path, "install", "--crds-only", "--dry-run", "-o", "yaml"],
-                text=True,
-            )
-            resources = codecs.load_all_yaml(output)
-        except (LoadResourceError, subprocess.CalledProcessError) as e:
-            logger.error("Failed to load Velero CRDs from dry-run install: %s", e)
-            raise VeleroCLIError("Failed to load Velero CRDs from dry-run install") from e
-
         return [
             K8sResource(name=crd.metadata.name, type=CustomResourceDefinition)
-            for crd in reversed(resources)
-            if isinstance(crd, CustomResourceDefinition) and crd.metadata and crd.metadata.name
+            for crd in reversed(self._get_crds())
+            if crd.metadata and crd.metadata.name
         ]
 
     @property
@@ -146,6 +180,26 @@ class Velero:
         return self._storage_provider_resources + self._crds + self._core_resources
 
     # METHODS
+
+    def _get_crds(self) -> List[CustomResourceDefinition]:
+        """Get the Velero CRDs from the dry-run install output.
+
+        Raises:
+            VeleroCLIError: If the CRDs cannot be loaded from the dry-run install output.
+        """
+        try:
+            output = subprocess.check_output(
+                [self._velero_binary_path, "install", "--crds-only", "--dry-run", "-o", "yaml"],
+                text=True,
+            )
+            return [
+                crd
+                for crd in codecs.load_all_yaml(output)
+                if isinstance(crd, CustomResourceDefinition)
+            ]
+        except (LoadResourceError, subprocess.CalledProcessError) as e:
+            logger.error("Failed to load Velero CRDs from dry-run install: %s", e)
+            raise VeleroCLIError("Failed to load Velero CRDs from dry-run install") from e
 
     def _create_storage_secret(
         self, kube_client: Client, storage_provider: VeleroStorageProvider
@@ -400,13 +454,20 @@ class Velero:
 
         logger.info("Velero storage locations configured successfully")
 
-    def install(self, kube_client: Client, velero_image: str, use_node_agent: bool) -> None:
+    def install(
+        self,
+        kube_client: Client,
+        velero_image: str,
+        use_node_agent: bool,
+        default_volumes_to_fs_backup: bool,
+    ) -> None:
         """Install Velero in the Kubernetes cluster.
 
         Args:
             kube_client (Client): The lightkube client used to interact with the cluster.
             velero_image: The Velero image to use.
             use_node_agent: Whether to use the Velero node agent (DaemonSet).
+            default_volumes_to_fs_backup: Whether to default volumes to filesystem backup.
 
         Raises:
             VeleroCLIError: If the CLI installation fails.
@@ -417,6 +478,7 @@ class Velero:
             f"  Image: '{velero_image}'\n"
             f"  Namespace: '{self._namespace}'\n"
             f"  Node-agent enabled: '{use_node_agent}'"
+            f"  Default volumes to filesystem backup: '{default_volumes_to_fs_backup}'\n"
         )
         try:
             logger.info(install_msg)
@@ -427,6 +489,7 @@ class Velero:
                     f"--image={velero_image}",
                     *self._velero_install_flags,
                     f"--use-node-agent={use_node_agent}",
+                    f"--default-volumes-to-fs-backup={default_volumes_to_fs_backup}",
                 ],
                 check=True,
                 capture_output=True,
@@ -497,6 +560,76 @@ class Velero:
             )
         except ApiError as ae:
             raise VeleroError("Failed to remove Velero NodeAgent") from ae
+
+    def update_velero_deployment_flags(
+        self, kube_client: Client, default_volumes_to_fs_backup: bool
+    ) -> None:
+        """Update the Velero Deployment flags.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            default_volumes_to_fs_backup (bool): The new value for the default-volumes-to-fs-backup
+
+        Raises:
+            VeleroError: If the update fails.
+        """
+        flags: Dict[str, Union[str, bool]] = {
+            "default-volumes-to-fs-backup": default_volumes_to_fs_backup,
+        }
+        try:
+            deployment = kube_client.get(
+                Deployment, VELERO_DEPLOYMENT_NAME, namespace=self._namespace
+            )
+            if (
+                not deployment.spec
+                or not deployment.spec.template
+                or not deployment.spec.template.spec
+            ):
+                raise VeleroError("Velero Deployment has no valid spec")
+
+            container = next(
+                (
+                    c
+                    for c in deployment.spec.template.spec.containers
+                    if c.name == VELERO_DEPLOYMENT_NAME
+                ),
+                None,
+            )
+            if not container or not container.args:
+                raise VeleroError("Failed to get Velero Deployment container arguments")
+
+            new_args = [
+                arg
+                for arg in container.args
+                if not any(arg.startswith(f"--{flag}=") for flag in flags.keys())
+            ]
+            new_args += [f"--{flag}={str(value).lower()}" for flag, value in flags.items()]
+
+            new_deployment_spec = {
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {
+                                    "name": VELERO_DEPLOYMENT_NAME,
+                                    "args": new_args,
+                                }
+                            ]
+                        }
+                    },
+                    "strategy": {"type": "Recreate", "rollingUpdate": None},
+                }
+            }
+            kube_client.patch(
+                Deployment,
+                VELERO_DEPLOYMENT_NAME,
+                new_deployment_spec,
+                namespace=self._namespace,
+            )
+        except ApiError as ae:
+            if ae.status.code != 404:
+                logger.error("Failed to update Velero Deployment arguments: %s", ae)
+                raise VeleroError("Failed to update Velero Deployment arguments") from ae
 
     def update_velero_node_agent_image(self, kube_client: Client, new_image: str) -> None:
         """Update the Velero NodeAgent image.
@@ -623,6 +756,21 @@ class Velero:
             except ApiError:
                 pass
 
+    def upgrade(self, kube_client: Client) -> None:
+        """Upgrade Velero deployment.
+
+        Raises:
+            VeleroError: If the upgrade fails.
+        """
+        logger.info("Upgrading Velero CRDs")
+        for crd in self._get_crds():
+            try:
+                kube_client.apply(crd)
+            except ApiError as ae:
+                if ae.status.code != 404:
+                    logger.error("Failed to upgrade Velero CRDs: %s", ae)
+                    raise VeleroError("Failed to upgrade Velero CRDs") from ae
+
     def run_cli_command(self, command: List[str]) -> str:
         """Run a Velero CLI command.
 
@@ -654,6 +802,192 @@ class Velero:
             logging.error("stderr: %s", cpe.stderr)
 
             raise VeleroCLIError(error_msg) from cpe
+
+    def create_backup(
+        self,
+        kube_client: Client,
+        name_prefix: str,
+        spec: VeleroBackupSpec,
+        default_volumes_to_fs_backup: bool,
+        labels: Optional[Dict[str, str]] = None,
+        annotations: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Create a Velero Backup Custom Resource using the provided spec.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            name_prefix (str): The name of the application for which the backup is created.
+                The backup name will be prefixed with this value and `generateName` will be used
+            spec (VeleroBackupSpec): The backup specification containing the backup details.
+            default_volumes_to_fs_backup (bool): Whether to default volumes to filesystem backup.
+            labels (Optional[Dict[str, str]]): Additional labels to apply to the backup resource.
+            annotations (Optional[Dict[str, str]]):
+                Additional annotations to apply to the backup resource.
+
+        Returns:
+            str: The name of the created backup.
+
+        Raises:
+            ApiError: If status check fails or if the backup creation fails.
+            VeleroError: If the backup creation fails
+            VeleroBackupStatusError: If the backup status is not successful.
+        """
+        backup = Backup(
+            metadata=ObjectMeta(
+                generateName=name_prefix,
+                namespace=self._namespace,
+                labels=labels,
+                annotations=annotations,
+            ),
+            spec=BackupSpecModel(
+                storageLocation=VELERO_BACKUP_LOCATION_NAME,
+                volumeSnapshotLocations=[VELERO_VOLUME_SNAPSHOT_LOCATION_NAME],
+                includedNamespaces=spec.include_namespaces,
+                includedResources=spec.include_resources,
+                excludedNamespaces=spec.exclude_namespaces,
+                excludedResources=spec.exclude_resources,
+                ttl=spec.ttl,
+                includeClusterResources=spec.include_cluster_resources,
+                labelSelector=(
+                    {"matchLabels": spec.label_selector} if spec.label_selector else None
+                ),
+                defaultVolumesToFsBackup=default_volumes_to_fs_backup,
+            ),
+        )
+
+        logger.info("Creating Velero Backup: name_prefix: '%s', spec: %s", name_prefix, spec)
+        try:
+            created_backup = kube_client.create(backup)
+            if not created_backup.metadata or not created_backup.metadata.name:  # pragma: no cover
+                raise VeleroError("Failed to create Velero Backup: no name in metadata")
+            name = created_backup.metadata.name
+        except ApiError as ae:
+            logger.error("Failed to create Velero Backup '%s': %s", name_prefix, ae)
+            raise VeleroError(f"Failed to create Velero Backup '{name_prefix}'") from ae
+
+        Velero.check_velero_backup(kube_client, self._namespace, name)
+        return name
+
+    def create_restore(
+        self,
+        kube_client: Client,
+        backup_uid: str,
+        existing_resource_policy: ExistingResourcePolicy = ExistingResourcePolicy.No,
+        labels: Optional[Dict[str, str]] = None,
+        annotations: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Create a Velero Restore Custom Resource using the provided backup name.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            backup_uid (str): The UID of the backup to restore from.
+                Will be used to generate the restore name.
+            existing_resource_policy (ExistingResourcePolicy, optional):
+                Policy for existing resources. Defaults to ExistingResourcePolicy.No ("none").
+            labels (Optional[Dict[str, str]], optional):
+                Additional labels to apply to the restore resource.
+            annotations (Optional[Dict[str, str]], optional):
+                Additional annotations to apply to the restore resource.
+
+        Returns:
+            str: The name of the created restore.
+
+        Raises:
+            ApiError: If the backup does not exist or if the restore creation fails.
+            VeleroError: If the restore creation fails.
+            VeleroRestoreStatusError: If the restore status is not successful.
+        """
+        logger.info("Checking if Velero Backup with UID '%s' exists", backup_uid)
+        backup_name = k8s_get_backup_name_by_uid(
+            kube_client,
+            backup_uid,
+            self._namespace,
+        )
+
+        if not backup_name:
+            raise VeleroError(f"Velero Backup with UID '{backup_uid}' not found")
+
+        restore = Restore(
+            metadata=ObjectMeta(
+                generateName=backup_name,
+                namespace=self._namespace,
+                labels=labels,
+                annotations=annotations,
+            ),
+            spec=RestoreSpecModel(
+                backupName=backup_name,
+                existingResourcePolicy=existing_resource_policy,
+            ),
+        )
+
+        logger.info("Creating Velero Restore: bakcup_name: '%s'", backup_name)
+        try:
+            created_restore = kube_client.create(restore)
+            if (
+                not created_restore.metadata or not created_restore.metadata.name
+            ):  # pragma: no cover
+                raise VeleroError("Failed to create Velero Restore: no name in metadata")
+            restore_name = created_restore.metadata.name
+        except ApiError as ae:
+            logger.error("Failed to create Velero Restore from backup '%s': %s", backup_name, ae)
+            raise VeleroError(
+                f"Failed to create Velero Restore from backup '{backup_name}'"
+            ) from ae
+
+        Velero.check_velero_restore(kube_client, self._namespace, restore_name)
+        return restore_name
+
+    def list_backups(
+        self, kube_client: Client, labels: Optional[Dict[str, Optional[str]]] = None
+    ) -> List[BackupInfo]:
+        """List all Velero backups in the cluster.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            labels (Optional[Dict[str, Optional[str]]], optional):
+                Labels to filter the backups. Defaults to None.
+
+        Raises:
+            VeleroError: If the backup listing fails.
+        """
+        try:
+            backups = kube_client.list(
+                Backup,
+                namespace=self._namespace,
+                labels=labels,  # type: ignore
+            )
+            backup_infos = []
+            for backup in backups:
+                if not backup.metadata or not backup.metadata.name or not backup.metadata.uid:
+                    logger.warning("Backup metadata is missing or has no name")
+                    continue
+                if not backup.metadata.labels or not backup.metadata.annotations:
+                    logger.warning(
+                        f"Backup metadata labels are missing for {backup.metadata.name}"
+                    )
+                    continue
+                if (
+                    not backup.status
+                    or not backup.status.phase
+                    or not backup.status.startTimestamp
+                ):
+                    logger.warning(f"Backup status is missing for {backup.metadata.name}")
+                    continue
+                backup_infos.append(
+                    BackupInfo(
+                        uid=backup.metadata.uid,
+                        name=backup.metadata.name,
+                        labels=backup.metadata.labels,
+                        annotations=backup.metadata.annotations,
+                        phase=backup.status.phase,
+                        start_timestamp=backup.status.startTimestamp,
+                        completion_timestamp=backup.status.completionTimestamp,
+                    )
+                )
+            return backup_infos
+        except ApiError as ae:
+            logger.error("Failed to list Velero Backups: %s", ae)
+            raise VeleroError("Failed to list Velero Backups") from ae
 
     # CHECKERS
 
@@ -700,6 +1034,85 @@ class Velero:
         return []
 
     @staticmethod
+    def check_velero_backup(kube_client: Client, namespace: str, name: str) -> None:
+        """Check the readiness of the Velero Backup in the Kubernetes cluster.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            namespace (str): The namespace where the backup is deployed.
+            name (str): The name of the Velero Backup.
+
+        Raises:
+            VeleroBackupStatusError: If the Velero Backup is not ready.
+            APIError: If the backup is not found.
+        """
+
+        def check_backup() -> None:
+            backup = kube_client.get(Backup, name=name, namespace=namespace)
+            if not backup.status or not backup.status.phase:
+                raise VeleroStatusError(f"Velero Backup '{name}' has no status or phase")
+
+            if backup.status.phase == "Completed":
+                return
+
+            if backup.status.phase in ["PartiallyFailed", "Failed"]:
+                raise VeleroBackupStatusError(
+                    name=name, reason=f"Status is '{backup.status.phase}'"
+                )
+            else:
+                raise VeleroStatusError(
+                    f"Velero Backup is still in progress: '{backup.status.phase}'"
+                )
+
+        logger.info("Checking the Velero Backup completeness")
+        k8s_retry_check(
+            check_backup,
+            retry_exceptions=(VeleroStatusError, ApiError),
+            attempts=K8S_CHECK_VELERO_ATTEMPTS,
+            delay=K8S_CHECK_VELERO_DELAY,
+            min_successful=K8S_CHECK_VELERO_OBSERVATIONS,
+        )
+
+    @staticmethod
+    def check_velero_restore(kube_client: Client, namespace: str, name: str) -> None:
+        """Check the readiness of the Velero Restore in the Kubernetes cluster.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            namespace (str): The namespace where the restore is deployed.
+            name (str): The name of the Velero Restore.
+
+        Raises:
+            VeleroRestoreStatusError: If the Velero Restore is not ready.
+            APIError: If the restore is not found.
+        """
+
+        def check_restore() -> None:
+            restore = kube_client.get(Restore, name=name, namespace=namespace)
+            if not restore.status or not restore.status.phase:
+                raise VeleroStatusError(f"Velero Restore '{name}' has no status or phase")
+
+            if restore.status.phase == "Completed":
+                return
+            if restore.status.phase in ["PartiallyFailed", "Failed"]:
+                raise VeleroRestoreStatusError(
+                    name=name, reason=f"Status is '{restore.status.phase}'"
+                )
+            else:
+                raise VeleroStatusError(
+                    f"Velero Restore is still in progress: '{restore.status.phase}'"
+                )
+
+        logger.info("Checking the Velero Restore completeness")
+        k8s_retry_check(
+            check_restore,
+            retry_exceptions=(VeleroStatusError, ApiError),
+            attempts=K8S_CHECK_VELERO_ATTEMPTS,
+            delay=K8S_CHECK_VELERO_DELAY,
+            min_successful=K8S_CHECK_VELERO_OBSERVATIONS,
+        )
+
+    @staticmethod
     def check_velero_deployment(
         kube_client: Client, namespace: str, name: str = VELERO_DEPLOYMENT_NAME
     ) -> None:
@@ -734,7 +1147,13 @@ class Velero:
                 )
 
         logger.info("Checking the Velero Deployment readiness")
-        k8s_retry_check(check_deployment, retry_exceptions=(VeleroStatusError, ApiError))
+        k8s_retry_check(
+            check_deployment,
+            retry_exceptions=(VeleroStatusError, ApiError),
+            attempts=K8S_CHECK_ATTEMPTS,
+            delay=K8S_CHECK_DELAY,
+            min_successful=K8S_CHECK_OBSERVATIONS,
+        )
 
     @staticmethod
     def check_velero_node_agent(
@@ -764,7 +1183,13 @@ class Velero:
                 raise VeleroStatusError(error_message.format(reason="Not all pods are available"))
 
         logger.info("Checking the Velero NodeAgent readiness")
-        k8s_retry_check(check_node_agent, retry_exceptions=(VeleroStatusError, ApiError))
+        k8s_retry_check(
+            check_node_agent,
+            retry_exceptions=(VeleroStatusError, ApiError),
+            attempts=K8S_CHECK_ATTEMPTS,
+            delay=K8S_CHECK_DELAY,
+            min_successful=K8S_CHECK_OBSERVATIONS,
+        )
 
     @staticmethod
     def check_velero_storage_locations(
@@ -806,7 +1231,13 @@ class Velero:
                 )
 
         logger.info("Checking the Velero BackupStorageLocation readiness")
-        k8s_retry_check(check_backup_location, retry_exceptions=(VeleroStatusError, ApiError))
+        k8s_retry_check(
+            check_backup_location,
+            retry_exceptions=(VeleroStatusError, ApiError),
+            attempts=K8S_CHECK_ATTEMPTS,
+            delay=K8S_CHECK_DELAY,
+            min_successful=K8S_CHECK_OBSERVATIONS,
+        )
         logger.info("Checking the Velero VolumeSnapshotLocation readiness")
         kube_client.get(
             VELERO_VOLUME_SNAPSHOT_LOCATION_RESOURCE, volume_loc_name, namespace=namespace
