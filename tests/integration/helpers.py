@@ -26,13 +26,22 @@ from tenacity import (
 )
 
 TIMEOUT = 60 * 10
+
+AZURE_INTEGRATOR = "azure-storage-integrator"
+AZURE_INTEGRATOR_CHANNEL = "latest/edge"
+
+S3_INTEGRATOR = "s3-integrator"
+S3_INTEGRATOR_CHANNEL = "latest/stable"
+
+VELERO_AWS_PLUGIN_IMAGE_KEY = "velero-aws-plugin-image"
+VELERO_AZURE_PLUGIN_IMAGE_KEY = "velero-azure-plugin-image"
+
 CHARM_METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 TEST_CHARM_METADATA = yaml.safe_load(
     Path("tests/integration/test_charm/charmcraft.yaml").read_text()
 )
 APP_NAME = CHARM_METADATA["name"]
 TEST_APP_NAME = TEST_CHARM_METADATA["name"]
-MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials]"
 UNTRUST_ERROR_MESSAGE = (
     "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
 )
@@ -42,9 +51,10 @@ TEST_APP_SECOND_RELATION_NAME = "second-velero-backup-config"
 READY_MESSAGE = "Unit is Ready"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_1 = "Velero Deployment is not ready: ImagePullBackOff"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_2 = "Velero Deployment is not ready: ErrImagePull"
-
-S3_INTEGRATOR = "s3-integrator"
-S3_INTEGRATOR_CHANNEL = "latest/stable"
+MULTIPLE_RELATIONS_MESSAGE = (
+    "Only one Storage Provider should be related at the time: [s3-credentials|azure-credentials]"
+)
+MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials|azure-credentials]"
 
 
 def get_model(ops_test: OpsTest) -> Model:
