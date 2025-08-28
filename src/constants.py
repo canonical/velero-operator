@@ -42,8 +42,17 @@ VELERO_VOLUME_SNAPSHOT_LOCATION_RESOURCE = create_namespaced_resource(
 )
 
 
-class StorageRelation(str, Enum):
-    """Storage provider enum."""
+S3_RELATION_NAME = "s3-credentials"
+AZURE_STORAGE_RELATION_NAME = "azure-storage"
+AZURE_SERVICE_PRINCIPAL_RELATION_NAME = "azure-service-principal"
 
-    S3 = "s3-credentials"
-    AZURE = "azure-credentials"
+
+class StorageRelation(str, Enum):
+    """Storage provider enum.
+
+    Defines the relation names for storage providers.
+    Only one at a time is used can be used.
+    """
+
+    S3 = S3_RELATION_NAME
+    AZURE = AZURE_STORAGE_RELATION_NAME
