@@ -8,9 +8,14 @@ import logging
 import pytest
 from helpers import (
     APP_NAME,
+    AZURE_INTEGRATOR,
+    AZURE_INTEGRATOR_CHANNEL,
     DEPLOYMENT_IMAGE_ERROR_MESSAGE_1,
     DEPLOYMENT_IMAGE_ERROR_MESSAGE_2,
     MISSING_RELATION_MESSAGE,
+    MULTIPLE_RELATIONS_MESSAGE,
+    S3_INTEGRATOR,
+    S3_INTEGRATOR_CHANNEL,
     TIMEOUT,
     UNTRUST_ERROR_MESSAGE,
     assert_app_status,
@@ -46,7 +51,11 @@ async def test_build_and_deploy(ops_test: OpsTest):
             trust=False,
             config={"use-node-agent": True, "default-volumes-to-fs-backup": True},
         ),
-        model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=TIMEOUT),
+        model.deploy(S3_INTEGRATOR, channel=S3_INTEGRATOR_CHANNEL),
+        model.deploy(AZURE_INTEGRATOR, channel=AZURE_INTEGRATOR_CHANNEL),
+        model.wait_for_idle(
+            apps=[APP_NAME, S3_INTEGRATOR, AZURE_INTEGRATOR], status="blocked", timeout=TIMEOUT
+        ),
     )
     assert_app_status(model.applications[APP_NAME], [UNTRUST_ERROR_MESSAGE])
 
@@ -65,6 +74,33 @@ async def test_trust(ops_test: OpsTest):
             raise_on_blocked=False,
             timeout=TIMEOUT,
         )
+    assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
+
+
+async def test_multiple_integrator_relations(ops_test: OpsTest):
+    """Relate the S3 and Azure integrator charms to the velero-operator charm."""
+    model = get_model(ops_test)
+
+    logger.info("Relating velero-operator to s3-integrator and azure-integrator")
+    await model.integrate(APP_NAME, S3_INTEGRATOR)
+    await model.integrate(APP_NAME, AZURE_INTEGRATOR)
+    await model.wait_for_idle(
+        apps=[APP_NAME],
+        status="blocked",
+        raise_on_blocked=False,
+        timeout=TIMEOUT,
+    )
+    assert_app_status(model.applications[APP_NAME], [MULTIPLE_RELATIONS_MESSAGE])
+
+    logger.info("Unrelating velero-operator from s3-integrator and azure-integrator")
+    await ops_test.juju(*["remove-relation", APP_NAME, AZURE_INTEGRATOR])
+    await ops_test.juju(*["remove-relation", APP_NAME, S3_INTEGRATOR])
+    await model.wait_for_idle(
+        apps=[APP_NAME],
+        status="blocked",
+        raise_on_blocked=False,
+        timeout=TIMEOUT,
+    )
     assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
 
 
@@ -151,6 +187,8 @@ async def test_remove(ops_test: OpsTest, lightkube_client):
 
     await asyncio.gather(
         model.remove_application(APP_NAME, block_until_done=True),
+        model.remove_application(S3_INTEGRATOR, block_until_done=True),
+        model.remove_application(AZURE_INTEGRATOR, block_until_done=True),
     )
 
     logger.info("Checking that all resources are deleted")
