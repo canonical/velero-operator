@@ -11,7 +11,6 @@ from functools import cached_property
 from typing import List, Optional, Union
 
 import ops
-from libs.azure_service_principal import AzureServicePrincipalRequirer
 from charms.data_platform_libs.v0.azure_storage import AzureStorageRequires
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from charms.data_platform_libs.v0.s3 import S3Requirer
@@ -32,6 +31,7 @@ from constants import (
     VELERO_METRICS_SERVICE_NAME,
     StorageRelation,
 )
+from libs.azure_service_principal import AzureServicePrincipalRequirer
 from velero import (
     AzureStorageProvider,
     BackupInfo,
