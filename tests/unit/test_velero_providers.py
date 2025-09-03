@@ -50,6 +50,7 @@ azure_data_1 = {
         "secret-key": "test-secret-key",
         "storage-account": "test-storage-account",
         "container": "test-container",
+        "endpoint": "http://custom.endpoint.com",
     },
     "service-principal": None,
 }
@@ -68,6 +69,16 @@ azure_data_2 = {
         "client-id": "test-client-id",
         "client-secret": "test-client-secret",
     },
+}
+
+azure_data_3 = {
+    "storage-config": {
+        "resource-group": "test-group",
+        "secret-key": "test-secret-key",
+        "storage-account": "test-storage-account",
+        "container": "test-container",
+    },
+    "service-principal": None,
 }
 
 # Invalid Azure input data
@@ -160,6 +171,7 @@ def test_s3_storage_provider_invalid_data(s3_data, error_fields):
         (
             azure_data_1,
             {
+                "storageAccountURI": "http://custom.endpoint.com",
                 "resourceGroup": "test-group",
                 "storageAccount": "test-storage-account",
                 "storageAccountKeyEnvVar": "AZURE_STORAGE_ACCOUNT_ACCESS_KEY",
@@ -183,6 +195,19 @@ def test_s3_storage_provider_invalid_data(s3_data, error_fields):
                 "AZURE_CLIENT_ID=test-client-id\n"
                 "AZURE_CLIENT_SECRET=test-client-secret\n"
                 "AZURE_RESOURCE_GROUP=test-ng-group\n"
+                "AZURE_CLOUD_NAME=AzurePublicCloud\n"
+            ),
+        ),
+        (
+            azure_data_3,
+            {
+                "resourceGroup": "test-group",
+                "storageAccount": "test-storage-account",
+                "storageAccountKeyEnvVar": "AZURE_STORAGE_ACCOUNT_ACCESS_KEY",
+            },
+            {},
+            (
+                "AZURE_STORAGE_ACCOUNT_ACCESS_KEY=test-secret-key\n"
                 "AZURE_CLOUD_NAME=AzurePublicCloud\n"
             ),
         ),

@@ -106,16 +106,28 @@ class AzureStorageProvider(VeleroStorageProvider):
                 "resourceGroup": self._config.backup_resource_group,
                 "storageAccount": self._config.storage_account,
             }
-        return {
+        config = {
             "resourceGroup": self._config.backup_resource_group,
             "storageAccount": self._config.storage_account,
             "storageAccountKeyEnvVar": "AZURE_STORAGE_ACCOUNT_ACCESS_KEY",
         }
+        if self.endpoint:
+            config["storageAccountURI"] = self.endpoint
+        return config
 
     @property
     def volume_snapshot_location_config(self) -> Dict[str, str]:
         """Return the configuration flags for Azure volume snapshot location."""
         return {}
+
+    @property
+    def endpoint(self) -> Optional[str]:
+        """Return the Azure storage endpoint."""
+        return (
+            self._config.endpoint
+            if self._config.endpoint and self._config.endpoint.startswith("http")
+            else None
+        )
 
     def _get_node_resource_group(self) -> str:
         """Get the resource group of the Kubernetes nodes."""
