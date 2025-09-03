@@ -2,6 +2,7 @@
 # See LICENSE file for licensing details.
 
 import base64
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -44,34 +45,40 @@ s3_invalid_data_2 = {
 
 # Valid Azure input data
 azure_data_1 = {
-    "container": "test-container",
-    "storage-account": "test-storage-account",
-    "secret-key": "test-secret-key",
+    "storage-config": {
+        "resource-group": "test-group",
+        "secret-key": "test-secret-key",
+        "storage-account": "test-storage-account",
+        "container": "test-container",
+    },
     "service-principal": None,
 }
 
 azure_data_2 = {
-    "container": "test-container",
-    "storage-account": "test-storage-account",
-    "path": "test/path",
+    "storage-config": {
+        "container": "test-container",
+        "storage-account": "test-storage-account",
+        "path": "test/path",
+        "resource-group": "test-group",
+        "secret-key": "test-secret-key",
+    },
     "service-principal": {
         "subscription-id": "test-subscription-id",
         "tenant-id": "test-tenant-id",
         "client-id": "test-client-id",
         "client-secret": "test-client-secret",
     },
-    "secret-key": "test-secret-key",
 }
 
 # Invalid Azure input data
-azure_invalid_data_1 = {
-    "storage-account": "account",
-    "secret-key": "secret",
-}
+azure_invalid_data_1 = {"storage-config": {"storage-account": "account", "secret-key": "secret"}}
 
 azure_invalid_data_2 = {
-    "container": "container",
-    "storage-account": "account",
+    "storage-config": {
+        "container": "container",
+        "storage-account": "account",
+        "resource-group": "group",
+    },
     "service-principal": {
         "subscription-id": "sub-id",
         "tenant-id": "tenant-id",
@@ -80,9 +87,20 @@ azure_invalid_data_2 = {
 }
 
 azure_invalid_data_3 = {
-    "container": "container",
-    "storage-account": "account",
+    "storage-config": {
+        "container": "container",
+        "storage-account": "account",
+        "resource-group": "group",
+    },
 }
+
+
+@pytest.fixture()
+def mock_lightkube_client():
+    """Mock the lightkube Client in charm.py."""
+    mock_lightkube_client = MagicMock()
+    with patch("velero.providers.azure.Client", return_value=mock_lightkube_client):
+        yield mock_lightkube_client
 
 
 @pytest.mark.parametrize(
@@ -142,6 +160,7 @@ def test_s3_storage_provider_invalid_data(s3_data, error_fields):
         (
             azure_data_1,
             {
+                "resourceGroup": "test-group",
                 "storageAccount": "test-storage-account",
                 "storageAccountKeyEnvVar": "AZURE_STORAGE_ACCOUNT_ACCESS_KEY",
             },
@@ -154,7 +173,7 @@ def test_s3_storage_provider_invalid_data(s3_data, error_fields):
         (
             azure_data_2,
             {
-                "useAAD": "true",
+                "resourceGroup": "test-group",
                 "storageAccount": "test-storage-account",
             },
             {},
@@ -163,33 +182,45 @@ def test_s3_storage_provider_invalid_data(s3_data, error_fields):
                 "AZURE_TENANT_ID=test-tenant-id\n"
                 "AZURE_CLIENT_ID=test-client-id\n"
                 "AZURE_CLIENT_SECRET=test-client-secret\n"
+                "AZURE_RESOURCE_GROUP=test-ng-group\n"
                 "AZURE_CLOUD_NAME=AzurePublicCloud\n"
             ),
         ),
     ],
 )
 def test_azure_storage_provider_success(
-    azure_data, backup_location_config, volume_snapshot_location_config, secret_data
+    azure_data,
+    backup_location_config,
+    volume_snapshot_location_config,
+    secret_data,
+    mock_lightkube_client,
 ):
     """Test Azure storage provider initialization with valid data."""
-    provider = AzureStorageProvider("azure-plugin-image", azure_data)
+    with patch.object(
+        AzureStorageProvider, "_get_node_resource_group", return_value="test-ng-group"
+    ):
+        provider = AzureStorageProvider(
+            "azure-plugin-image",
+            azure_data.get("storage-config", {}),
+            azure_data.get("service-principal"),
+        )
 
-    assert provider.plugin == "azure"
-    assert provider.bucket == "test-container"
-    assert provider.plugin_image == "azure-plugin-image"
-    assert provider.path == azure_data.get("path")
+        assert provider.plugin == "azure"
+        assert provider.bucket == "test-container"
+        assert provider.plugin_image == "azure-plugin-image"
+        assert provider.path == azure_data.get("storage-config", {}).get("path")
 
-    encoded_secret = base64.b64encode(secret_data.encode()).decode()
-    assert provider.secret_data == encoded_secret
+        encoded_secret = base64.b64encode(secret_data.encode()).decode()
+        assert provider.secret_data == encoded_secret
 
-    assert provider.backup_location_config == backup_location_config
-    assert provider.volume_snapshot_location_config == volume_snapshot_location_config
+        assert provider.backup_location_config == backup_location_config
+        assert provider.volume_snapshot_location_config == volume_snapshot_location_config
 
 
 @pytest.mark.parametrize(
     "azure_data,error_fields",
     [
-        (azure_invalid_data_1, ["'container'"]),
+        (azure_invalid_data_1, ["'container'", "'resource-group'"]),
         (azure_invalid_data_2, ["'service-principal.client-secret'"]),
         (azure_invalid_data_3, ["'secret_key' or 'service_principal'"]),
     ],
@@ -197,8 +228,44 @@ def test_azure_storage_provider_success(
 def test_azure_storage_provider_invalid_data(azure_data, error_fields):
     """Test Azure storage provider initialization with missing required fields."""
     with pytest.raises(StorageProviderError) as exc_info:
-        AzureStorageProvider("azure-plugin-image", azure_data)
+        AzureStorageProvider(
+            "azure-plugin-image",
+            azure_data.get("storage-config", {}),
+            azure_data.get("service-principal"),
+        )
 
     assert f"{AzureStorageConfig.__name__} errors:" in str(exc_info.value)
     for field in error_fields:
         assert field in str(exc_info.value)
+
+
+def test_azure_storage_provider_get_node_resource_group(mock_lightkube_client):
+    """Test _get_node_resource_group method for various scenarios."""
+    provider = AzureStorageProvider.__new__(AzureStorageProvider)
+
+    mock_node = MagicMock()
+    mock_node.spec.providerID = (
+        "azure:///subscriptions/sub-id/resourceGroups/"
+        "node-rg/providers/Microsoft.Compute/virtualMachines/vm-name"
+    )
+    mock_lightkube_client.list.return_value = [mock_node]
+    result = provider._get_node_resource_group()
+    assert result == "node-rg"
+
+    mock_node.spec.providerID = None
+    with pytest.raises(
+        StorageProviderError, match="Failed to get the ResourceGroup of the Azure Kubernetes nodes"
+    ):
+        provider._get_node_resource_group()
+
+    mock_node.spec.providerID = "invalid-provider-id"
+    with pytest.raises(
+        StorageProviderError, match="Failed to get the ResourceGroup of the Azure Kubernetes nodes"
+    ):
+        provider._get_node_resource_group()
+
+    mock_lightkube_client.list.return_value = []
+    with pytest.raises(
+        StorageProviderError, match="Failed to get the ResourceGroup of the Azure Kubernetes nodes"
+    ):
+        provider._get_node_resource_group()

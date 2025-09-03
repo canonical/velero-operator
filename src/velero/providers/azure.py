@@ -3,11 +3,17 @@
 
 """Velero Azure Storage Provider class definitions."""
 
-from typing import Dict, Optional, Self, Union
+import re
+from typing import Dict, Optional, Self
 
+from lightkube import Client
+from lightkube.resources.core_v1 import Node
 from pydantic import BaseModel, Field, model_validator
 
-from .classes import StorageConfig, VeleroStorageProvider
+from .classes import StorageConfig, StorageProviderError, VeleroStorageProvider
+
+_RG_REGEX = re.compile(r"/resourcegroups/([^/]+)(?:/|$)", re.IGNORECASE)
+_SP_KEY_NAME = "service-principal"
 
 
 class AzureServicePrincipal(BaseModel):
@@ -24,10 +30,12 @@ class AzureStorageConfig(StorageConfig):
 
     container: str
     storage_account: str = Field(alias="storage-account")
+    backup_resource_group: str = Field(alias="resource-group")
     path: Optional[str] = Field(None, alias="path")
+    endpoint: Optional[str] = Field(None, alias="endpoint")
 
     secret_key: Optional[str] = Field(None, alias="secret-key")
-    service_principal: Optional[AzureServicePrincipal] = Field(None, alias="service-principal")
+    service_principal: Optional[AzureServicePrincipal] = Field(None, alias=_SP_KEY_NAME)
 
     @model_validator(mode="after")
     def check_credentials(self) -> Self:
@@ -41,10 +49,21 @@ class AzureStorageProvider(VeleroStorageProvider):
     """Azure storage provider for Velero."""
 
     def __init__(
-        self, plugin_image: str, data: Dict[str, Union[str, Dict[str, str], None]]
+        self,
+        plugin_image: str,
+        storage_config_data: Dict[str, str],
+        service_principal_data: Optional[Dict[str, str]] = None,
     ) -> None:
         self._config: AzureStorageConfig
-        super().__init__(plugin_image, data, AzureStorageConfig)
+
+        raw_cfg: dict = {**storage_config_data}
+        if service_principal_data:
+            raw_cfg[_SP_KEY_NAME] = service_principal_data
+
+        super().__init__(plugin_image, raw_cfg, AzureStorageConfig)
+
+        if self._config.service_principal:
+            self._node_resource_group = self._get_node_resource_group()
 
     @property
     def plugin(self) -> str:
@@ -71,6 +90,7 @@ class AzureStorageProvider(VeleroStorageProvider):
                 f"AZURE_TENANT_ID={service_principal.tenant_id}\n"
                 f"AZURE_CLIENT_ID={service_principal.client_id}\n"
                 f"AZURE_CLIENT_SECRET={service_principal.client_secret}\n"
+                f"AZURE_RESOURCE_GROUP={self._node_resource_group}\n"
                 "AZURE_CLOUD_NAME=AzurePublicCloud\n"
             )
         return self._encode_secret(
@@ -83,10 +103,11 @@ class AzureStorageProvider(VeleroStorageProvider):
         """Return the configuration flags for Azure storage provider."""
         if self._config.service_principal:
             return {
-                "useAAD": "true",
+                "resourceGroup": self._config.backup_resource_group,
                 "storageAccount": self._config.storage_account,
             }
         return {
+            "resourceGroup": self._config.backup_resource_group,
             "storageAccount": self._config.storage_account,
             "storageAccountKeyEnvVar": "AZURE_STORAGE_ACCOUNT_ACCESS_KEY",
         }
@@ -95,3 +116,17 @@ class AzureStorageProvider(VeleroStorageProvider):
     def volume_snapshot_location_config(self) -> Dict[str, str]:
         """Return the configuration flags for Azure volume snapshot location."""
         return {}
+
+    def _get_node_resource_group(self) -> str:
+        """Get the resource group of the Kubernetes nodes."""
+        client = Client()
+
+        for node in client.list(Node):
+            if not node.spec or not node.spec.providerID:
+                continue
+
+            resource_group = _RG_REGEX.search(node.spec.providerID)
+            if resource_group:
+                return resource_group.group(1)
+
+        raise StorageProviderError("Failed to get the ResourceGroup of the Azure Kubernetes nodes")

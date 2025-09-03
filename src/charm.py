@@ -360,10 +360,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 service_principal = self.azure_service_principal.get_azure_service_principal_info()
                 provider = AzureStorageProvider(
                     self.config.velero_azure_plugin_image,
-                    {
-                        **self.azure_storage.get_azure_storage_connection_info(),
-                        "service_principal": service_principal or None,
-                    },
+                    self.azure_storage.get_azure_storage_connection_info(),
+                    service_principal or None,
                 )
             else:  # pragma: no cover
                 raise ValueError("Unsupported storage provider or no provider configured.")

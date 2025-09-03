@@ -343,6 +343,7 @@ def test_storage_relation_properties(relations, mock_lightkube_client, mock_vele
                 "storage-account": "test-account",
                 "secret-key": "test-key",
                 "connection-protocol": "test-protocol",
+                "resource-group": "test-group",
             },
         ),
     ],
