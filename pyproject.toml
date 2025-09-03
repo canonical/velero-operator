@@ -113,6 +113,7 @@ juju = "^3.6"
 tenacity = "^9.0.0"
 boto3 = "^1.28.11"
 pytest = "^8.3.3"
+azure-storage-blob = "^12.26.0"
 pytest-operator = ">0.30"
 charmed-kubeflow-chisme = "^0.4.6"
 

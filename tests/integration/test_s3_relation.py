@@ -176,7 +176,6 @@ async def test_unrelate_s3_integrator(ops_test: OpsTest):
         await model.wait_for_idle(
             apps=[APP_NAME],
             status="blocked",
-            raise_on_blocked=False,
             timeout=TIMEOUT,
         )
     assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])

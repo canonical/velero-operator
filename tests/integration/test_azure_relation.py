@@ -20,15 +20,19 @@ from helpers import (
     VELERO_AZURE_PLUGIN_IMAGE_KEY,
     assert_app_status,
     get_model,
+    k8s_assert_resource_exists,
+    k8s_delete_and_wait,
+    k8s_get_velero_backup,
     run_charm_action,
+    verify_pvc_content,
 )
-from lightkube import ApiError
 from lightkube.resources.core_v1 import Namespace
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
 
-AZURE_SECRET_NAME = f"azure-secret-{time.time()}"
+AZURE_STORAGE_SECRET_NAME = f"azure-storage-secret-{time.time()}"
+AZURE_AUTH_SECRET_NAME = f"azure-auth-secret-{time.time()}"
 BACKUP_NAME = f"test-backup-{uuid.uuid4()}"
 
 
@@ -44,27 +48,35 @@ async def test_build_and_deploy(ops_test: OpsTest, azure_connection_info):
             charm, application_name=APP_NAME, trust=True, config={"use-node-agent": True}
         ),
         model.deploy(AZURE_INTEGRATOR, channel=AZURE_INTEGRATOR_CHANNEL),
-        model.wait_for_idle(apps=[APP_NAME, AZURE_INTEGRATOR], status="blocked", timeout=TIMEOUT),
+        model.wait_for_idle(
+            apps=[APP_NAME, AZURE_INTEGRATOR],
+            status="blocked",
+            timeout=TIMEOUT,
+        ),
     )
     assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
 
 
 @pytest.mark.abort_on_fail
-async def test_configure_azure_integrator(
+async def test_configure_azure_storage_integrator(
     ops_test: OpsTest,
-    azure_cloud_credentials,
-    azure_cloud_configs,
+    azure_storage_credentials,
+    azure_storage_configs,
 ):
     """Configure the integrator charm with the credentials and configs."""
     logger.info("Setting credentials for %s", AZURE_INTEGRATOR)
     model = get_model(ops_test)
     app = model.applications[AZURE_INTEGRATOR]
 
-    await app.set_config(azure_cloud_configs)
+    await app.set_config(azure_storage_configs)
     _, stdout, _ = await ops_test.juju(
-        *["add-secret", AZURE_SECRET_NAME, f"secret-key={azure_cloud_credentials['secret-key']}"]
+        *[
+            "add-secret",
+            AZURE_STORAGE_SECRET_NAME,
+            f"secret-key={azure_storage_credentials['secret-key']}",
+        ]
     )
-    await model.grant_secret(AZURE_SECRET_NAME, AZURE_INTEGRATOR)
+    await model.grant_secret(AZURE_STORAGE_SECRET_NAME, AZURE_INTEGRATOR)
     await app.set_config({"credentials": stdout.strip()})
 
     await model.wait_for_idle(
@@ -75,7 +87,7 @@ async def test_configure_azure_integrator(
 
 
 @pytest.mark.abort_on_fail
-async def test_relate_azure_integrator(ops_test: OpsTest):
+async def test_relate_azure_storage_integrator(ops_test: OpsTest):
     """Test the relation between the velero-operator charm and the azure-integrator charm."""
     logger.info("Relating velero-operator to %s", AZURE_INTEGRATOR)
     model = get_model(ops_test)
@@ -112,22 +124,30 @@ async def test_configure_azure_plugin_image(ops_test: OpsTest):
 
 
 @pytest.mark.abort_on_fail
-async def test_azure_backup(ops_test: OpsTest, k8s_test_resources):
+async def test_azure_backup(ops_test: OpsTest, k8s_test_resources, lightkube_client):
     """Test the backup functionality of the velero-operator charm."""
     logger.info("Testing backup functionality")
     model = get_model(ops_test)
     unit = model.applications[APP_NAME].units[0]
     test_namespace = k8s_test_resources["namespace"].metadata.name
+    test_file = k8s_test_resources["test_file_path"]
+    test_pvc_name = k8s_test_resources["pvc_name"]
+
+    logger.info("Waiting for the test namespace to be ready")
+    verify_pvc_content(lightkube_client, test_namespace, test_pvc_name, test_file, 1)
 
     logger.info("Creating a backup")
+    # Includes pv to test if the VolumeSnapshotLocation is configured correctly
     await run_charm_action(
         unit,
         "run-cli",
-        command=f"backup create {BACKUP_NAME} --include-namespaces {test_namespace}",
+        command=f"backup create {BACKUP_NAME} --wait --include-namespaces {test_namespace} "
+        f"--include-cluster-scoped-resources persistentvolumes",
     )
 
     logger.info("Verifying the backup")
-    await run_charm_action(unit, "run-cli", command=f"backup describe {BACKUP_NAME}")
+    backup = k8s_get_velero_backup(lightkube_client, BACKUP_NAME, model.name)
+    assert backup["status"]["phase"] == "Completed", "Backup is not completed"
 
 
 @pytest.mark.abort_on_fail
@@ -138,24 +158,21 @@ async def test_azure_restore(ops_test: OpsTest, k8s_test_resources, lightkube_cl
     unit = model.applications[APP_NAME].units[0]
     test_resources = k8s_test_resources["resources"]
     test_namespace = k8s_test_resources["namespace"].metadata.name
-    lightkube_client.delete(Namespace, test_namespace, grace_period=0)
+    test_file = k8s_test_resources["test_file_path"]
+    test_pvc_name = k8s_test_resources["pvc_name"]
+    k8s_delete_and_wait(lightkube_client, Namespace, test_namespace, grace_period=0)
 
     logger.info("Creating a restore")
-    await run_charm_action(unit, "run-cli", command=f"restore create --from-backup {BACKUP_NAME}")
+    await run_charm_action(
+        unit, "run-cli", command=f"restore create --from-backup {BACKUP_NAME} --wait"
+    )
 
     logger.info("Verifying the restore")
     for resource in test_resources:
-        try:
-            lightkube_client.get(
-                type(resource), name=resource.metadata.name, namespace=test_namespace
-            )
-        except ApiError as ae:
-            if ae.response.status_code == 404:
-                assert (
-                    False
-                ), f"Resource {resource.kind} {resource.metadata.name} not found after restore"
-            else:
-                raise
+        k8s_assert_resource_exists(
+            lightkube_client, type(resource), name=resource.metadata.name, namespace=test_namespace
+        )
+    verify_pvc_content(lightkube_client, test_namespace, test_pvc_name, test_file, 2)
 
 
 @pytest.mark.abort_on_fail
@@ -169,7 +186,6 @@ async def test_unrelate_azure_integrator(ops_test: OpsTest):
         await model.wait_for_idle(
             apps=[APP_NAME],
             status="blocked",
-            raise_on_blocked=False,
             timeout=TIMEOUT,
         )
     assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
@@ -182,7 +198,7 @@ async def test_remove(ops_test: OpsTest):
     model = get_model(ops_test)
 
     await asyncio.gather(
+        model.remove_secret(AZURE_STORAGE_SECRET_NAME),
         model.remove_application(APP_NAME, block_until_done=True),
         model.remove_application(AZURE_INTEGRATOR, block_until_done=True),
-        model.remove_secret(AZURE_SECRET_NAME),
     )

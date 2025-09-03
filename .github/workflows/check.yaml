@@ -50,6 +50,12 @@ jobs:
       with:
         python-version: 3.13
 
+    - name: Set up Node and NPM
+      uses: actions/setup-node@v5
+      with:
+        node-version: 21
+        cache: 'npm'
+
     - name: Setup operator environment
       run: |
         # Use https://github.com/canonical/concierge
