@@ -47,10 +47,6 @@ class AzureBlobConnectionInfo:
     storage_account: str
     container: str
     resource_group: str
-    subscription_id: str = "test-subscription-id"
-    tenant_id: str = "test-tenant-id"
-    client_id: str = "test-client-id"
-    client_secret: str = "test-client-secret"
 
 
 def is_ci() -> bool:
@@ -229,10 +225,6 @@ def azure_connection_info() -> AzureBlobConnectionInfo:
         "AZURE_STORAGE_ACCOUNT",
         "AZURE_RESOURCE_GROUP",
         "AZURE_CONTAINER",
-        "AZURE_CLIENT_SECRET",
-        "AZURE_TENANT_ID",
-        "AZURE_CLIENT_ID",
-        "AZURE_SUBSCRIPTION_ID",
     ]
     missing_or_empty = [var for var in required_env_vars if not os.environ.get(var)]
     if missing_or_empty:
@@ -245,10 +237,6 @@ def azure_connection_info() -> AzureBlobConnectionInfo:
         storage_account=os.environ["AZURE_STORAGE_ACCOUNT"],
         container=os.environ["AZURE_CONTAINER"],
         resource_group=os.environ["AZURE_RESOURCE_GROUP"],
-        subscription_id=os.environ["AZURE_SUBSCRIPTION_ID"],
-        tenant_id=os.environ["AZURE_TENANT_ID"],
-        client_id=os.environ["AZURE_CLIENT_ID"],
-        client_secret=os.environ["AZURE_CLIENT_SECRET"],
     )
 
 
@@ -259,17 +247,6 @@ def azure_storage_credentials(
     """Return cloud credentials for Azure."""
     return {
         "secret-key": azure_connection_info.secret_key,
-    }
-
-
-@pytest.fixture(scope="session")
-def azure_service_principal_credentials(
-    azure_connection_info: AzureBlobConnectionInfo,
-) -> dict[str, str]:
-    """Return cloud credentials for Azure."""
-    return {
-        "client-secret": azure_connection_info.client_secret,
-        "client-id": azure_connection_info.client_id,
     }
 
 
@@ -289,17 +266,6 @@ def azure_storage_configs(
         config["endpoint"] = f"http://{get_host_ip()}:{AZURITE_BLOB_PORT}/{AZURITE_ACCOUNT}"
 
     return config
-
-
-@pytest.fixture(scope="session")
-def azure_service_principal_configs(
-    azure_connection_info: AzureBlobConnectionInfo,
-) -> dict[str, str]:
-    """Return cloud configs for Azure."""
-    return {
-        "subscription-id": azure_connection_info.subscription_id,
-        "tenant-id": azure_connection_info.tenant_id,
-    }
 
 
 @pytest.fixture(scope="session")
