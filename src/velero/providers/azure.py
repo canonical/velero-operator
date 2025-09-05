@@ -4,7 +4,6 @@
 """Velero Azure Storage Provider class definitions."""
 
 import logging
-import re
 from typing import Dict, Optional, Self
 
 from lightkube import Client
@@ -13,7 +12,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from .classes import StorageConfig, StorageProviderError, VeleroStorageProvider
 
-_RG_REGEX = re.compile(r"/resourcegroups/([^/]+)(?:/|$)", re.IGNORECASE)
 _SP_KEY_NAME = "service-principal"
 
 logger = logging.getLogger(__name__)
@@ -142,8 +140,11 @@ class AzureStorageProvider(VeleroStorageProvider):
             if not node.spec or not node.spec.providerID:
                 continue
 
-            resource_group = _RG_REGEX.search(node.spec.providerID)
-            if resource_group:
-                return resource_group.group(1)
+            parts = node.spec.providerID.lower().split("/")
+            try:
+                rg_index = parts.index("resourcegroups")
+                return parts[rg_index + 1]
+            except (IndexError, ValueError):
+                continue
 
         raise StorageProviderError("Failed to get the ResourceGroup of the Azure Kubernetes nodes")
