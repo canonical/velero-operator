@@ -121,6 +121,7 @@ export AWS_ACCESS_KEY=$(sudo microceph.radosgw-admin user info --uid test \
         | jq -r ".keys[0].access_key")
 
 export AZURE_STORAGE_ACCOUNT=devstoreaccount1
+export AZURE_RESOURCE_GROUP=velero-testing
 export AZURE_STORAGE_KEY=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
 export AZURE_STORAGE_ENDPOINT="http://$(hostname):10000/devstoreaccount1"
 ```
