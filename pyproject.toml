@@ -42,7 +42,7 @@ lint.extend-ignore = [
     "D413",
 ]
 lint.ignore = ["D107"]
-extend-exclude = ["__pycache__", "*.egg_info"]
+extend-exclude = ["__pycache__", "*.egg_info", "src/libs/*"]
 lint.per-file-ignores = {"tests/*" = ["D100","D101","D102","D103","D104"], "src/velero/crds/*" = ["N815"]}
 
 [tool.ruff.lint.mccabe]
@@ -56,6 +56,7 @@ ignore-words-list = "NotIn"
 [tool.pyright]
 include = ["src"]
 extraPaths = ["lib"]
+exclude = ["src/libs/*"]
 
 [tool.black]
 line-length = 99
@@ -113,6 +114,7 @@ juju = "^3.6"
 tenacity = "^9.0.0"
 boto3 = "^1.28.11"
 pytest = "^8.3.3"
+azure-storage-blob = "^12.26.0"
 pytest-operator = ">0.30"
 charmed-kubeflow-chisme = "^0.4.6"
 

@@ -12,6 +12,8 @@ import uuid
 import boto3
 import botocore.exceptions
 import pytest
+from azure.core.exceptions import ResourceExistsError, ServiceRequestError
+from azure.storage.blob import BlobServiceClient
 from helpers import k8s_assert_resource_exists
 from lightkube import ApiError, Client, codecs
 from lightkube.models.meta_v1 import ObjectMeta
@@ -19,8 +21,13 @@ from lightkube.resources.core_v1 import Namespace
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 logger = logging.getLogger(__name__)
-MICROCEPH_BUCKET = "testbucket"
+OBJECT_STORAGE_BUCKET = "testbucket"
 MICROCEPH_RGW_PORT = 7480
+AZURITE_BLOB_PORT = 10000
+AZURITE_ACCOUNT = "devstoreaccount1"
+AZURITE_KEY = (
+    "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/" "K1SZFPTOtr/KBHBeksoGMGw=="
+)
 K8S_TEST_NAMESPACE = "velero-integration-tests"
 K8S_TEST_RESOURCES_YAML_PATH = "./tests/integration/resources/test_resources.yaml.j2"
 K8S_TEST_PVC_RESOURCE_NAME = "test-pvc"
@@ -32,6 +39,14 @@ class S3ConnectionInfo:
     access_key_id: str
     secret_access_key: str
     bucket: str
+
+
+@dataclasses.dataclass(frozen=True)
+class AzureBlobConnectionInfo:
+    secret_key: str
+    storage_account: str
+    container: str
+    resource_group: str
 
 
 def is_ci() -> bool:
@@ -74,13 +89,13 @@ def setup_microceph() -> S3ConnectionInfo:
     """Set up microceph for testing."""
     logger.info("Setting up microceph")
 
-    subprocess.run(["sudo", "snap", "install", "microceph"], check=True)
-    subprocess.run(["sudo", "microceph", "cluster", "bootstrap"], check=True)
-    subprocess.run(["sudo", "microceph", "disk", "add", "loop,1G,3"], check=True)
-    subprocess.run(
-        ["sudo", "microceph", "enable", "rgw", "--port", str(MICROCEPH_RGW_PORT)], check=True
+    subprocess.check_call(["sudo", "snap", "install", "microceph"])
+    subprocess.check_call(["sudo", "microceph", "cluster", "bootstrap"])
+    subprocess.check_call(["sudo", "microceph", "disk", "add", "loop,1G,3"])
+    subprocess.check_call(
+        ["sudo", "microceph", "enable", "rgw", "--port", str(MICROCEPH_RGW_PORT)]
     )
-    output = subprocess.run(
+    output = subprocess.check_output(
         [
             "sudo",
             "microceph.radosgw-admin",
@@ -91,10 +106,8 @@ def setup_microceph() -> S3ConnectionInfo:
             "--display-name",
             "test",
         ],
-        capture_output=True,
-        check=True,
         encoding="utf-8",
-    ).stdout
+    )
 
     key = json.loads(output)["keys"][0]
     access_key = key["access_key"]
@@ -102,11 +115,61 @@ def setup_microceph() -> S3ConnectionInfo:
 
     logger.info("Creating microceph bucket")
     create_microceph_bucket(
-        MICROCEPH_BUCKET, access_key, secret_key, f"http://localhost:{MICROCEPH_RGW_PORT}"
+        OBJECT_STORAGE_BUCKET, access_key, secret_key, f"http://localhost:{MICROCEPH_RGW_PORT}"
     )
 
     logger.info("Set up microceph successfully")
-    return S3ConnectionInfo(access_key, secret_key, MICROCEPH_BUCKET)
+    return S3ConnectionInfo(access_key, secret_key, OBJECT_STORAGE_BUCKET)
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_fixed(1),
+    retry=retry_if_exception_type((ServiceRequestError)),
+    reraise=True,
+)
+def create_azurite_container(connection_str: str, container_name: str) -> None:
+    """Attempt to create a container in Azurite with retry logic."""
+    logger.info("Attempting to create azurite container")
+    blob_service_client = BlobServiceClient.from_connection_string(connection_str)
+    try:
+        blob_service_client.create_container(container_name)
+    except ResourceExistsError:
+        logger.info("Container %r already exists", container_name)
+
+
+def setup_azurite() -> AzureBlobConnectionInfo:
+    logger.info("Setting up azurite")
+
+    subprocess.check_call(["npm", "install", "-g", "azurite"])
+    subprocess.Popen(
+        [
+            "azurite-blob",
+            "-l",
+            "/tmp/azurite",
+            "--blobHost",
+            "0.0.0.0",
+            "--blobPort",
+            str(AZURITE_BLOB_PORT),
+            "--loose",
+        ]
+    )
+
+    conn_str = (
+        f"DefaultEndpointsProtocol=http;"
+        f"AccountName={AZURITE_ACCOUNT};"
+        f"AccountKey={AZURITE_KEY};"
+        f"BlobEndpoint=http://127.0.0.1:10000/{AZURITE_ACCOUNT};"
+    )
+    logger.info("Creating azurite bucket")
+    create_azurite_container(conn_str, OBJECT_STORAGE_BUCKET)
+
+    return AzureBlobConnectionInfo(
+        secret_key=AZURITE_KEY,
+        storage_account=AZURITE_ACCOUNT,
+        container=OBJECT_STORAGE_BUCKET,
+        resource_group="test-resource-group",
+    )
 
 
 @pytest.fixture(scope="session")
@@ -156,6 +219,63 @@ def s3_cloud_configs(s3_connection_info: S3ConnectionInfo) -> dict[str, str]:
         config["endpoint"] = os.environ.get("AWS_ENDPOINT", "https://s3.amazonaws.com")
         config["s3-uri-style"] = os.environ.get("AWS_S3_URI_STYLE", "virtual")
         config["region"] = os.environ.get("AWS_REGION", "us-east-2")
+
+    return config
+
+
+@pytest.fixture(scope="session")
+def azure_connection_info() -> AzureBlobConnectionInfo:
+    """Return Azure connection info based on environment."""
+    if is_ci():
+        return setup_azurite()
+
+    required_env_vars = [
+        "AZURE_SECRET_KEY",
+        "AZURE_STORAGE_ACCOUNT",
+        "AZURE_RESOURCE_GROUP",
+        "AZURE_CONTAINER",
+    ]
+    missing_or_empty = [var for var in required_env_vars if not os.environ.get(var)]
+    if missing_or_empty:
+        raise RuntimeError(
+            f"Missing or empty required Azure environment variables: {", ".join(missing_or_empty)}"
+        )
+
+    return AzureBlobConnectionInfo(
+        secret_key=os.environ["AZURE_SECRET_KEY"],
+        storage_account=os.environ["AZURE_STORAGE_ACCOUNT"],
+        container=os.environ["AZURE_CONTAINER"],
+        resource_group=os.environ["AZURE_RESOURCE_GROUP"],
+    )
+
+
+@pytest.fixture(scope="session")
+def azure_storage_credentials(
+    azure_connection_info: AzureBlobConnectionInfo,
+) -> dict[str, str]:
+    """Return cloud credentials for Azure."""
+    return {
+        "secret-key": azure_connection_info.secret_key,
+    }
+
+
+@pytest.fixture(scope="session")
+def azure_storage_configs(
+    azure_connection_info: AzureBlobConnectionInfo,
+) -> dict[str, str]:
+    """Return cloud configs for Azure."""
+    config = {
+        "container": azure_connection_info.container,
+        "path": f"velero/{uuid.uuid4()}",
+        "storage-account": azure_connection_info.storage_account,
+        "resource-group": azure_connection_info.resource_group,
+    }
+
+    if is_ci():
+        config["endpoint"] = f"http://{get_host_ip()}:{AZURITE_BLOB_PORT}/{AZURITE_ACCOUNT}"
+    else:
+        if endpoint := os.environ.get("AZURE_ENDPOINT"):
+            config["endpoint"] = endpoint
 
     return config
 

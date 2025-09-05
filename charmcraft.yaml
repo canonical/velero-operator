@@ -45,6 +45,11 @@ config:
         The Velero AWS plugin container image to deploy
       default: "velero/velero-plugin-for-aws:v1.10.0"
       type: string
+    velero-azure-plugin-image:
+      description: |
+        The Velero Azure plugin container image to deploy
+      default: "velero/velero-plugin-for-microsoft-azure:v1.11.0"
+      type: string
     default-volumes-to-fs-backup:
       description: |
         Controls whether to backup all volumes using the file system backup method
@@ -167,6 +172,12 @@ requires:
     interface: s3
     limit: 1
     optional: true
+  azure-storage:
+    interface: azure_storage
+    limit: 1
+  azure-service-principal:
+    interface: azure_service_principal
+    limit: 1
   velero-backups:
     interface: velero_backup_config
     optional: true
