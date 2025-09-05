@@ -3,6 +3,7 @@
 
 """Velero Azure Storage Provider class definitions."""
 
+import logging
 import re
 from typing import Dict, Optional, Self
 
@@ -14,6 +15,8 @@ from .classes import StorageConfig, StorageProviderError, VeleroStorageProvider
 
 _RG_REGEX = re.compile(r"/resourcegroups/([^/]+)(?:/|$)", re.IGNORECASE)
 _SP_KEY_NAME = "service-principal"
+
+logger = logging.getLogger(__name__)
 
 
 class AzureServicePrincipal(BaseModel):
@@ -84,6 +87,7 @@ class AzureStorageProvider(VeleroStorageProvider):
     def secret_data(self) -> str:
         """Return the base64 encoded secret data for Azure storage provider."""
         if self._config.service_principal:
+            logger.info("Using service principal for Azure credentials")
             service_principal = self._config.service_principal
             return self._encode_secret(
                 f"AZURE_SUBSCRIPTION_ID={service_principal.subscription_id}\n"
@@ -93,6 +97,7 @@ class AzureStorageProvider(VeleroStorageProvider):
                 f"AZURE_RESOURCE_GROUP={self._node_resource_group}\n"
                 "AZURE_CLOUD_NAME=AzurePublicCloud\n"
             )
+        logger.info("Using storage account key for Azure credentials")
         return self._encode_secret(
             f"AZURE_STORAGE_ACCOUNT_ACCESS_KEY={self._config.secret_key}\n"
             "AZURE_CLOUD_NAME=AzurePublicCloud\n"
