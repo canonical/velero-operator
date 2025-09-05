@@ -89,13 +89,13 @@ def setup_microceph() -> S3ConnectionInfo:
     """Set up microceph for testing."""
     logger.info("Setting up microceph")
 
-    subprocess.run(["sudo", "snap", "install", "microceph"], check=True)
-    subprocess.run(["sudo", "microceph", "cluster", "bootstrap"], check=True)
-    subprocess.run(["sudo", "microceph", "disk", "add", "loop,1G,3"], check=True)
-    subprocess.run(
-        ["sudo", "microceph", "enable", "rgw", "--port", str(MICROCEPH_RGW_PORT)], check=True
+    subprocess.check_call(["sudo", "snap", "install", "microceph"])
+    subprocess.check_call(["sudo", "microceph", "cluster", "bootstrap"])
+    subprocess.check_call(["sudo", "microceph", "disk", "add", "loop,1G,3"])
+    subprocess.check_call(
+        ["sudo", "microceph", "enable", "rgw", "--port", str(MICROCEPH_RGW_PORT)]
     )
-    output = subprocess.run(
+    output = subprocess.check_output(
         [
             "sudo",
             "microceph.radosgw-admin",
@@ -106,10 +106,8 @@ def setup_microceph() -> S3ConnectionInfo:
             "--display-name",
             "test",
         ],
-        capture_output=True,
-        check=True,
         encoding="utf-8",
-    ).stdout
+    )
 
     key = json.loads(output)["keys"][0]
     access_key = key["access_key"]
@@ -143,8 +141,19 @@ def create_azurite_container(connection_str: str, container_name: str) -> None:
 def setup_azurite() -> AzureBlobConnectionInfo:
     logger.info("Setting up azurite")
 
-    subprocess.run(["npm", "install", "-g", "azurite"], check=True)
-    subprocess.Popen(["azurite-blob", "-l", "/tmp/azurite"])
+    subprocess.check_call(["npm", "install", "-g", "azurite"])
+    subprocess.Popen(
+        [
+            "azurite-blob",
+            "-l",
+            "/tmp/azurite",
+            "--blobHost",
+            "0.0.0.0",
+            "--blobPort",
+            str(AZURITE_BLOB_PORT),
+            "--loose",
+        ]
+    )
 
     conn_str = (
         f"DefaultEndpointsProtocol=http;"
@@ -264,6 +273,9 @@ def azure_storage_configs(
 
     if is_ci():
         config["endpoint"] = f"http://{get_host_ip()}:{AZURITE_BLOB_PORT}/{AZURITE_ACCOUNT}"
+    else:
+        if endpoint := os.environ.get("AZURE_ENDPOINT"):
+            config["endpoint"] = endpoint
 
     return config
 
