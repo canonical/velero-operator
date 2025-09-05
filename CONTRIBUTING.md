@@ -75,17 +75,17 @@ tox -e unit
 
 ### Integration Tests
 
-Integration tests require a working Kubernetes cluster (via `microk8s`) and a Juju controller. We **assume** you already have these set up. If not, refer to the official [microk8s](https://microk8s.io/) and [juju](https://juju.is/) documentation.
+Integration tests require a working Kubernetes cluster (via `Canonical K8s`) and a Juju controller. We **assume** you already have these set up. If not, refer to the official [Canonical K8s](https://documentation.ubuntu.com/canonical-kubernetes/release-1.32/) and [juju](https://juju.is/) documentation.
 
 **Important things to know before running the integration tests:**
 
-* These tests require AWS-style S3 credentials.
-* If you're running in a CI environment (`CI=true`), a local RadosGW (via `microceph`) is set up automatically.
-* When testing locally, you **must** provide your own credentials or reuse those from `microceph`.
+* These tests require AWS-style S3 credentials and Azure Storage credentials.
+* If you're running in a CI environment (`CI=true`), a local RadosGW (via `microceph`) and a local Azurite instance will be created automatically.
+* When testing locally, you **must** provide your own credentials or reuse those from `microceph` and `Azurite`.
 
-#### 1. Setup RadosGW
+#### 1. Setup RadosGW and Azurite
 
-The integration tests can install microceph and RadosGW, and then run the tests. To do so you'll need to run the integration tests with `CI=true`.
+The integration tests can install microceph with RadosGW and Azurite, and then run the tests. To do so you'll need to run the integration tests with `CI=true`.
 
 When the `CI=true` environment variable is set:
 
@@ -93,20 +93,22 @@ When the `CI=true` environment variable is set:
 * A local RadosGW instance is created
 * S3 credentials are generated for a user `test`
 * A `testbucket` bucket is created
+* A local Azurite instance is started on port `10000`
 * The integration tests will use this local setup
 
 > **Note**: You can create your own S3 bucket and credentials if you prefer. Just ensure the `AWS_*` environment variables are set correctly.
 >
 > **Note**: RadosGW will be exposed under `$(hostname):7480`
+>
+> **Note**: Azurite will be exposed under `$(hostname):10000`
 
 ```bash
 CI=true tox -vve integration -- --model velero-testing
 ```
 
-#### 2. Reuse Local RadosGW
+#### 2. Reuse Local RadosGW and Azurite
 
-You can also run the integration tests and point them to an existing S3 to be used. This can also be the RadosGW created with `CI=true`.
-For example, set the following environment variables, before running the tests:
+You can also run the integration tests and point them to existing local instances of RadosGW and Azurite. For example, set the following environment variables:
 
 ```bash
 export AWS_ENDPOINT="http://$(hostname):7480"
@@ -117,11 +119,15 @@ export AWS_SECRET_KEY=$(sudo microceph.radosgw-admin user info --uid test \
         | jq -r ".keys[0].secret_key")
 export AWS_ACCESS_KEY=$(sudo microceph.radosgw-admin user info --uid test \
         | jq -r ".keys[0].access_key")
+
+export AZURE_STORAGE_ACCOUNT=devstoreaccount1
+export AZURE_STORAGE_KEY=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+export AZURE_STORAGE_ENDPOINT="http://$(hostname):10000/devstoreaccount1"
 ```
 
-> **Note**: `AWS_S3_URI_STYLE` is optional, unless you are using local S3(must be set to `path`)
+> **Note**: `AWS_S3_URI_STYLE` is optional, unless you are using local S3 (must be set to `path`)
 >
-> **Note**: `AWS_ENDPOINT` is optional, unless you are using local S3
+> **Note**: `AWS_ENDPOINT` and `AZURE_STORAGE_ENDPOINT` are optional, unless you are using local S3/Azurite
 
 Then you can run the integration tests with:
 
