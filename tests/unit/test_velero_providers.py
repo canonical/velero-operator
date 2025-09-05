@@ -50,7 +50,7 @@ azure_data_1 = {
         "secret-key": "test-secret-key",
         "storage-account": "test-storage-account",
         "container": "test-container",
-        "endpoint": "http://custom.endpoint.com",
+        "endpoint": "https://test-group.blob.core.windows.net",
     },
     "service-principal": None,
 }
@@ -82,7 +82,13 @@ azure_data_3 = {
 }
 
 # Invalid Azure input data
-azure_invalid_data_1 = {"storage-config": {"storage-account": "account", "secret-key": "secret"}}
+azure_invalid_data_1 = {
+    "storage-config": {
+        "storage-account": "account",
+        "secret-key": "secret",
+        "endpoint": "wasb://invalid-endpoint.com",
+    }
+}
 
 azure_invalid_data_2 = {
     "storage-config": {
@@ -171,7 +177,7 @@ def test_s3_storage_provider_invalid_data(s3_data, error_fields):
         (
             azure_data_1,
             {
-                "storageAccountURI": "http://custom.endpoint.com",
+                "storageAccountURI": "https://test-group.blob.core.windows.net",
                 "resourceGroup": "test-group",
                 "storageAccount": "test-storage-account",
                 "storageAccountKeyEnvVar": "AZURE_STORAGE_ACCOUNT_ACCESS_KEY",

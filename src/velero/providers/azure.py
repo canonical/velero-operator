@@ -8,7 +8,7 @@ from typing import Dict, Optional, Self
 
 from lightkube import Client
 from lightkube.resources.core_v1 import Node
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .classes import StorageConfig, StorageProviderError, VeleroStorageProvider
 
@@ -44,6 +44,14 @@ class AzureStorageConfig(StorageConfig):
         if not self.secret_key and not self.service_principal:
             raise ValueError("Either 'secret_key' or 'service_principal' must be provided")
         return self
+
+    @field_validator("endpoint", mode="before")
+    @classmethod
+    def validate_endpoint(cls, v: str) -> str:
+        """Validate the endpoint protocol is http or https."""
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("invalid protocol, must be http or https")
+        return v
 
 
 class AzureStorageProvider(VeleroStorageProvider):
@@ -114,23 +122,14 @@ class AzureStorageProvider(VeleroStorageProvider):
             "storageAccount": self._config.storage_account,
             "storageAccountKeyEnvVar": "AZURE_STORAGE_ACCOUNT_ACCESS_KEY",
         }
-        if self.endpoint:
-            config["storageAccountURI"] = self.endpoint
+        if self._config.endpoint:
+            config["storageAccountURI"] = self._config.endpoint
         return config
 
     @property
     def volume_snapshot_location_config(self) -> Dict[str, str]:
         """Return the configuration flags for Azure volume snapshot location."""
         return {}
-
-    @property
-    def endpoint(self) -> Optional[str]:
-        """Return the Azure storage endpoint."""
-        return (
-            self._config.endpoint
-            if self._config.endpoint and self._config.endpoint.startswith("http")
-            else None
-        )
 
     def _get_node_resource_group(self) -> str:
         """Get the resource group of the Kubernetes nodes."""
