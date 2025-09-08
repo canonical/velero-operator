@@ -1,14 +1,11 @@
 settings:
     # Jira project key to create the issue in
-  jira_project_key: "SOLENG"
+  jira_project_key: "KF"
 
   # Dictionary mapping GitHub issue status to Jira issue status
   status_mapping:
     opened: Untriaged
     closed: done
-
-  components:
-    - velero-operator
 
   # (Optional) GitHub labels. Only issues with one of those labels will be synchronized.
   # If not specified, all issues will be synchronized
@@ -26,7 +23,7 @@ settings:
   sync_comments: false
 
   # (Optional) (Default: None) Parent Epic key to link the issue to
-  epic_key: "SOLENG-762"
+  epic_key: "KF-4805"
 
   # (Optional) Dictionary mapping GitHub issue labels to Jira issue types.
   # If label on the issue is not in specified list, this issue will be created as a Bug
