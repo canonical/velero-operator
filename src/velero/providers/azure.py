@@ -1,0 +1,149 @@
+# Copyright 2025 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+"""Velero Azure Storage Provider class definitions."""
+
+import logging
+from typing import Dict, Optional, Self
+
+from lightkube import Client
+from lightkube.resources.core_v1 import Node
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from .classes import StorageConfig, StorageProviderError, VeleroStorageProvider
+
+_SP_KEY_NAME = "service-principal"
+
+logger = logging.getLogger(__name__)
+
+
+class AzureServicePrincipal(BaseModel):
+    """Pydantic model for Azure service principal."""
+
+    subscription_id: str = Field(alias="subscription-id")
+    tenant_id: str = Field(alias="tenant-id")
+    client_id: str = Field(alias="client-id")
+    client_secret: str = Field(alias="client-secret")
+
+
+class AzureStorageConfig(StorageConfig):
+    """Pydantic model for Azure storage config."""
+
+    container: str
+    storage_account: str = Field(alias="storage-account")
+    backup_resource_group: str = Field(alias="resource-group")
+    path: Optional[str] = Field(None, alias="path")
+    endpoint: Optional[str] = Field(None, alias="endpoint")
+
+    secret_key: Optional[str] = Field(None, alias="secret-key")
+    service_principal: Optional[AzureServicePrincipal] = Field(None, alias=_SP_KEY_NAME)
+
+    @model_validator(mode="after")
+    def check_credentials(self) -> Self:
+        """Ensure either secret_key or service_principal is provided, but not both."""
+        if not self.secret_key and not self.service_principal:
+            raise ValueError("Either 'secret_key' or 'service_principal' must be provided")
+        return self
+
+    @field_validator("endpoint", mode="before")
+    @classmethod
+    def validate_endpoint(cls, v: str) -> str:
+        """Validate the endpoint protocol is http or https."""
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("invalid protocol, must be http or https")
+        return v
+
+
+class AzureStorageProvider(VeleroStorageProvider):
+    """Azure storage provider for Velero."""
+
+    def __init__(
+        self,
+        plugin_image: str,
+        storage_config_data: Dict[str, str],
+        service_principal_data: Optional[Dict[str, str]] = None,
+    ) -> None:
+        self._config: AzureStorageConfig
+
+        raw_cfg: dict = {**storage_config_data}
+        if service_principal_data:
+            raw_cfg[_SP_KEY_NAME] = service_principal_data
+
+        super().__init__(plugin_image, raw_cfg, AzureStorageConfig)
+
+        if self._config.service_principal:
+            self._node_resource_group = self._get_node_resource_group()
+
+    @property
+    def plugin(self) -> str:
+        """Return the storage provider plugin name."""
+        return "azure"
+
+    @property
+    def bucket(self) -> str:
+        """Return the Azure storage bucket name."""
+        return self._config.container
+
+    @property
+    def path(self) -> Optional[str]:
+        """Return the Azure storage path."""
+        return self._config.path
+
+    @property
+    def secret_data(self) -> str:
+        """Return the base64 encoded secret data for Azure storage provider."""
+        if self._config.service_principal:
+            logger.info("Using service principal for Azure credentials")
+            service_principal = self._config.service_principal
+            return self._encode_secret(
+                f"AZURE_SUBSCRIPTION_ID={service_principal.subscription_id}\n"
+                f"AZURE_TENANT_ID={service_principal.tenant_id}\n"
+                f"AZURE_CLIENT_ID={service_principal.client_id}\n"
+                f"AZURE_CLIENT_SECRET={service_principal.client_secret}\n"
+                f"AZURE_RESOURCE_GROUP={self._node_resource_group}\n"
+                "AZURE_CLOUD_NAME=AzurePublicCloud\n"
+            )
+        logger.info("Using storage account key for Azure credentials")
+        return self._encode_secret(
+            f"AZURE_STORAGE_ACCOUNT_ACCESS_KEY={self._config.secret_key}\n"
+            "AZURE_CLOUD_NAME=AzurePublicCloud\n"
+        )
+
+    @property
+    def backup_location_config(self) -> Dict[str, str]:
+        """Return the configuration flags for Azure storage provider."""
+        if self._config.service_principal:
+            return {
+                "resourceGroup": self._config.backup_resource_group,
+                "storageAccount": self._config.storage_account,
+            }
+        config = {
+            "resourceGroup": self._config.backup_resource_group,
+            "storageAccount": self._config.storage_account,
+            "storageAccountKeyEnvVar": "AZURE_STORAGE_ACCOUNT_ACCESS_KEY",
+        }
+        if self._config.endpoint:
+            config["storageAccountURI"] = self._config.endpoint
+        return config
+
+    @property
+    def volume_snapshot_location_config(self) -> Dict[str, str]:
+        """Return the configuration flags for Azure volume snapshot location."""
+        return {}
+
+    def _get_node_resource_group(self) -> str:
+        """Get the resource group of the Kubernetes nodes."""
+        client = Client()
+
+        for node in client.list(Node):
+            if not node.spec or not node.spec.providerID:
+                continue
+
+            parts = node.spec.providerID.lower().split("/")
+            try:
+                rg_index = parts.index("resourcegroups")
+                return parts[rg_index + 1]
+            except (IndexError, ValueError):
+                continue
+
+        raise StorageProviderError("Failed to get the ResourceGroup of the Azure Kubernetes nodes")

@@ -317,13 +317,11 @@ async def test_unrelate(ops_test: OpsTest):
         await model.wait_for_idle(
             apps=[TEST_APP_NAME],
             status="waiting",
-            raise_on_blocked=False,
             timeout=TIMEOUT,
         )
         await model.wait_for_idle(
             apps=[APP_NAME],
             status="blocked",
-            raise_on_blocked=False,
             timeout=TIMEOUT,
         )
 

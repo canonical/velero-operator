@@ -25,17 +25,16 @@ class StorageConfig(BaseModel):
         error_messages = []
         for error in ve.errors():
             field = ".".join(map(str, error["loc"]))
-            message = error["msg"].replace("Field ", "")
-            error_messages.append(f"'{field}' {message}")
+            message = error["msg"].replace("Field ", "").replace("Value error, ", "")
+            error_message = f"'{field}' {message}" if field else message
+            error_messages.append(error_message)
         return f"{cls.__name__} errors: " + "; ".join(error_messages)
 
 
 class VeleroStorageProvider(ABC):
     """Base class for Velero storage provider."""
 
-    def __init__(
-        self, plugin_image: str, data: Dict[str, str], config_cls: Type[StorageConfig]
-    ) -> None:
+    def __init__(self, plugin_image: str, data: dict, config_cls: Type[StorageConfig]) -> None:
         self._plugin_image = plugin_image
         try:
             self._config = config_cls(**data)

@@ -32,7 +32,6 @@ TEST_CHARM_METADATA = yaml.safe_load(
 )
 APP_NAME = CHARM_METADATA["name"]
 TEST_APP_NAME = TEST_CHARM_METADATA["name"]
-MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials]"
 UNTRUST_ERROR_MESSAGE = (
     "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
 )
@@ -42,9 +41,21 @@ TEST_APP_SECOND_RELATION_NAME = "second-velero-backup-config"
 READY_MESSAGE = "Unit is Ready"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_1 = "Velero Deployment is not ready: ImagePullBackOff"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_2 = "Velero Deployment is not ready: ErrImagePull"
+MULTIPLE_RELATIONS_MESSAGE = (
+    "Only one Storage Provider should be related at the time: [s3-credentials|azure-storage]"
+)
+MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials|azure-storage]"
+
+AZURE_INTEGRATOR = "azure-storage-integrator"
+AZURE_INTEGRATOR_CHANNEL = "latest/edge"
+AZURE_AUTH_INTEGRATOR = "azure-auth-integrator"
+AZURE_AUTH_INTEGRATOR_CHANNEL = "latest/edge"
 
 S3_INTEGRATOR = "s3-integrator"
 S3_INTEGRATOR_CHANNEL = "latest/stable"
+
+VELERO_AWS_PLUGIN_IMAGE_KEY = "velero-aws-plugin-image"
+VELERO_AZURE_PLUGIN_IMAGE_KEY = "velero-azure-plugin-image"
 
 
 def get_model(ops_test: OpsTest) -> Model:
@@ -203,7 +214,7 @@ def k8s_delete_and_wait(
     wait_for_deletion()
 
 
-@retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
+@retry(stop=stop_after_attempt(30), wait=wait_fixed(2), reraise=True)
 def k8s_get_pvc_content(
     client: Client, pod_name: str, namespace: str, pvc_name: str, test_file: str
 ) -> str:
@@ -268,7 +279,7 @@ def k8s_get_pvc_content(
     raise ValueError(f"Mount path for PVC {pvc_name} not found in pod {pod.metadata.name}")
 
 
-@retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
+@retry(stop=stop_after_attempt(10), wait=wait_fixed(2), reraise=True)
 def k8s_get_deployment(
     client: Client,
     name: str,
@@ -328,7 +339,7 @@ def k8s_get_velero_deployment_container_args(
     return container.args
 
 
-@retry(stop=stop_after_delay(60), wait=wait_fixed(2), reraise=True)
+@retry(stop=stop_after_attempt(10), wait=wait_fixed(2), reraise=True)
 def k8s_get_velero_backup(
     client: Client,
     backup_name: str,
@@ -356,6 +367,43 @@ def k8s_get_velero_backup(
     except ApiError as e:
         if e.status.code == 404:
             assert False, f"Backup {backup_name} not found in namespace {namespace}"
+        else:
+            raise
+
+
+@retry(stop=stop_after_attempt(10), wait=wait_fixed(2), reraise=True)
+def k8s_get_velero_backup_location(
+    client: Client,
+    backup_location_name: str,
+    namespace: str,
+) -> Dict:
+    """Get the Velero backup location object.
+
+    Args:
+        client: The lightkube client to use for the retrieval.
+        backup_location_name: The name of the backup location.
+        namespace: The namespace of the backup location.
+
+    Returns:
+        The Velero backup location object.
+
+    Raises:
+        AssertionError: If the backup location is not found or if there is an API error.
+    """
+    backup_location = create_namespaced_resource(
+        group="velero.io",
+        version="v1",
+        kind="BackupStorageLocation",
+        plural="backupstoragelocations",
+    )
+
+    try:
+        return client.get(backup_location, name=backup_location_name, namespace=namespace)
+    except ApiError as e:
+        if e.status.code == 404:
+            assert (
+                False
+            ), f"Backup location {backup_location_name} not found in namespace {namespace}"
         else:
             raise
 

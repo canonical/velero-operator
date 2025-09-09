@@ -12,6 +12,7 @@ class CharmConfig(BaseConfigModel):
 
     velero_image: str
     velero_aws_plugin_image: str
+    velero_azure_plugin_image: str
     use_node_agent: bool
     default_volumes_to_fs_backup: bool
 
