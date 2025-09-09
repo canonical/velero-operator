@@ -77,15 +77,17 @@ tox -e unit
 
 Integration tests require a working Kubernetes cluster (via `Canonical K8s`) and a Juju controller. We **assume** you already have these set up. If not, refer to the official [Canonical K8s](https://documentation.ubuntu.com/canonical-kubernetes/release-1.32/) and [juju](https://juju.is/) documentation.
 
-**Important things to know before running the integration tests:**
+**Other dependencies**
 
-* These tests require AWS-style S3 credentials and Azure Storage credentials.
-* If you're running in a CI environment (`CI=true`), a local RadosGW (via `microceph`) and a local Azurite instance will be created automatically.
-* When testing locally, you **must** provide your own credentials or reuse those from `microceph` and `Azurite`.
+The tests require an AWS-style S3 and Azure Storage local service, to run tests locally.
 
-#### 1. Setup RadosGW and Azurite
+For S3 we are using a local RadosGW (via `microceph`) snap and a local Azurite instance. You can either let the tests install those dependencies, or re-use them if they are already installed
+from a previous run.
+
+#### Let the tests install the dependencies
 
 The integration tests can install microceph with RadosGW and Azurite, and then run the tests. To do so you'll need to run the integration tests with `CI=true`.
+This can be used either when running the integration tests locally for the first time, or when run in the CI.
 
 When the `CI=true` environment variable is set:
 
@@ -96,19 +98,22 @@ When the `CI=true` environment variable is set:
 * A local Azurite instance is started on port `10000`
 * The integration tests will use this local setup
 
+
+```bash
+CI=true tox -vve integration -- --model velero-testing
+```
+
 > **Note**: You can create your own S3 bucket and credentials if you prefer. Just ensure the `AWS_*` environment variables are set correctly.
 >
 > **Note**: RadosGW will be exposed under `$(hostname):7480`
 >
 > **Note**: Azurite will be exposed under `$(hostname):10000`
 
-```bash
-CI=true tox -vve integration -- --model velero-testing
-```
+#### Reuse Local RadosGW and Azurite
 
-#### 2. Reuse Local RadosGW and Azurite
+In case you already have RadosGW and Azurite setup, i.e. from a previous test run with `CI=true`, then you can tell the tests to use the existing services.
 
-You can also run the integration tests and point them to existing local instances of RadosGW and Azurite. For example, set the following environment variables:
+To do so you need to set the following environment variables:
 
 ```bash
 export AWS_ENDPOINT="http://$(hostname):7480"
