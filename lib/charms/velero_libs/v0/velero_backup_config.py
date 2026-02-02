@@ -70,10 +70,16 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 1
+LIBPATCH = 2
 
 # Regex to check if the provided TTL is a correct duration
 DURATION_REGEX = r"^(?=.*\d)(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$"
+
+# Regex to validate cron expressions (5 or 6 fields)
+# Supports: minute hour day-of-month month day-of-week [year]
+# Each field can be: number, *, */n, n-m, n,m,o, or combinations
+CRON_FIELD = r"(\*|(\*/\d+)|(\d+(-\d+)?)(,\d+(-\d+)?)*|\?)"
+CRON_REGEX = rf"^{CRON_FIELD}(\s+{CRON_FIELD}){{4,5}}$"
 
 SPEC_FIELD = "spec"
 APP_FIELD = "app"
@@ -96,6 +102,16 @@ class VeleroBackupSpec(BaseModel):
             Whether to include cluster-wide resources in the backup.
             Defaults to None (auto detect based on resources).
         ttl (Optional[str]): TTL for the backup, if applicable. Example: "24h", "10m10s", etc.
+        schedule (Optional[str]): Cron expression for scheduled backups.
+            Example: "0 2 * * *" (daily at 2 AM). If not provided, only on-demand backups
+            are available. When set, the Velero Operator will create a Schedule CR.
+        paused (Optional[bool]): Whether the schedule is paused. Defaults to False.
+            Only applicable when schedule is set.
+        skip_immediately (Optional[bool]): If true, skip the immediate backup when creating
+            a schedule. Defaults to False. Only applicable when schedule is set.
+        use_owner_references_in_backup (Optional[bool]): If true, add OwnerReferences to
+            backups created by the schedule. When the schedule is deleted, backups will be
+            garbage collected. Defaults to False. Only applicable when schedule is set.
     """
 
     include_namespaces: Optional[List[str]] = None
@@ -105,12 +121,22 @@ class VeleroBackupSpec(BaseModel):
     label_selector: Optional[Dict[str, str]] = None
     ttl: Optional[str] = None
     include_cluster_resources: Optional[bool] = None
+    # Schedule-related fields (optional, for recurring backups)
+    schedule: Optional[str] = None
+    paused: Optional[bool] = None
+    skip_immediately: Optional[bool] = None
+    use_owner_references_in_backup: Optional[bool] = None
 
     def __post_init__(self):
         """Validate the specification."""
         if self.ttl and not re.match(DURATION_REGEX, self.ttl):
             raise ValueError(
                 f"Invalid TTL format: {self.ttl}. Expected format: '24h', '10h10m10s', etc."
+            )
+        if self.schedule and not re.match(CRON_REGEX, self.schedule):
+            raise ValueError(
+                f"Invalid cron expression: {self.schedule}. "
+                "Expected format: '* * * * *' (min hour day month weekday)"
             )
 
 
