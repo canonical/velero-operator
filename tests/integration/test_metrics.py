@@ -65,8 +65,14 @@ async def test_relate_otel_collector(ops_test: OpsTest):
     )
 
 
-@pytest.mark.abort_on_fail
-async def test_metrics_enpoint(ops_test: OpsTest):
+@pytest.mark.xfail(
+    reason=(
+        "charmed_kubeflow_chisme assert_metrics_endpoint has grafana-agent-k8s hardcoded. "
+        "Waiting for upstream fix: https://github.com/canonical/charmed-kubeflow-chisme/issues/182"
+    ),
+    strict=False,
+)
+async def test_metrics_endpoint(ops_test: OpsTest):
     """Test metrics_endpoints are defined in relation data bag and their accessibility."""
     logger.info("Testing metrics endpoints")
     model = get_model(ops_test)
