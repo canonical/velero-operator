@@ -37,7 +37,10 @@ async def test_build_and_deploy(ops_test: OpsTest):
             charm, application_name=APP_NAME, trust=True, config={"use-node-agent": True}
         ),
         model.deploy(OTEL_COLLECTOR_APP, channel=OTEL_COLLECTOR_CHANNEL, trust=True),
-        model.wait_for_idle(apps=[APP_NAME, OTEL_COLLECTOR_APP], status="active", timeout=TIMEOUT),
+    )
+    await asyncio.gather(
+        model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=TIMEOUT),
+        model.wait_for_idle(apps=[OTEL_COLLECTOR_APP], status="active", timeout=TIMEOUT),
     )
     assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
 
@@ -57,7 +60,7 @@ async def test_relate_otel_collector(ops_test: OpsTest):
 
     await model.wait_for_idle(
         apps=[OTEL_COLLECTOR_APP],
-        status="active",
+        status="blocked",
         timeout=TIMEOUT,
     )
 
