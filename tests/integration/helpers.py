@@ -408,6 +408,60 @@ def k8s_get_velero_backup_location(
             raise
 
 
+@retry(stop=stop_after_attempt(10), wait=wait_fixed(2), reraise=True)
+def k8s_get_velero_schedule(
+    client: Client,
+    schedule_name: str,
+    namespace: str,
+) -> Dict:
+    """Get the Velero schedule object.
+
+    Args:
+        client: The lightkube client to use for the retrieval.
+        schedule_name: The name of the schedule.
+        namespace: The namespace of the schedule.
+
+    Returns:
+        The Velero schedule object.
+
+    Raises:
+        AssertionError: If the schedule is not found or if there is an API error.
+    """
+    schedule = create_namespaced_resource(
+        group="velero.io", version="v1", kind="Schedule", plural="schedules"
+    )
+
+    try:
+        return client.get(schedule, name=schedule_name, namespace=namespace)
+    except ApiError as e:
+        if e.status.code == 404:
+            assert False, f"Schedule {schedule_name} not found in namespace {namespace}"
+        else:
+            raise
+
+
+def k8s_list_velero_schedules(
+    client: Client,
+    namespace: str,
+    labels: Optional[Dict[str, str]] = None,
+) -> list:
+    """List Velero schedules with optional label filter.
+
+    Args:
+        client: The lightkube client to use for the listing.
+        namespace: The namespace to list schedules from.
+        labels: Optional label selector to filter schedules.
+
+    Returns:
+        List of Velero schedule objects.
+    """
+    schedule = create_namespaced_resource(
+        group="velero.io", version="v1", kind="Schedule", plural="schedules"
+    )
+
+    return list(client.list(schedule, namespace=namespace, labels=labels))
+
+
 def verify_pvc_content(
     client: Client, namespace: str, pvc_name: str, file: str, expected_lines: int
 ) -> None:
