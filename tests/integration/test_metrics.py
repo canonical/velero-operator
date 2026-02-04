@@ -76,10 +76,18 @@ async def test_metrics_endpoint_relation_data(ops_test: OpsTest):
 
     """
     logger.info("Testing metrics endpoint relation data")
-    app_data = await get_application_data(ops_test, APP_NAME, METRICS_ENDPOINT)
+    model = get_model(ops_test)
+
+    app_data = await get_application_data(ops_test, OTEL_COLLECTOR_APP, METRICS_ENDPOINT)
     scrape_jobs = app_data["scrape_jobs"]
     assert str(METRICS_PORT) in scrape_jobs
     assert METRICS_PATH in scrape_jobs
+
+    otel_unit = model.applications[OTEL_COLLECTOR_APP].units[0]
+    result = await otel_unit.run(
+        f"curl -s http://velero-metrics:{METRICS_PORT}{METRICS_PATH} || echo 'failed'", block=True
+    )
+    assert result.results["stdout"].strip() != "failed"
 
 
 @pytest.mark.xfail(
