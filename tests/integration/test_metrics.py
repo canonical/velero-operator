@@ -12,6 +12,7 @@ from helpers import (
     MISSING_RELATION_MESSAGE,
     TIMEOUT,
     assert_app_status,
+    get_application_data,
     get_model,
 )
 from pytest_operator.plugin import OpsTest
@@ -63,6 +64,22 @@ async def test_relate_otel_collector(ops_test: OpsTest):
         status="blocked",
         timeout=TIMEOUT,
     )
+
+
+@pytest.mark.abort_on_fail
+async def test_metrics_endpoint_relation_data(ops_test: OpsTest):
+    """Validate metrics endpoint config in the relation data bag.
+
+    Temporary replacement for `assert_metrics_endpoint` from `charmed_kubeflow_chisme`,
+    which does not support opentelemetry-collector-k8s for now.
+    Remove this test and back to use `test_metrics_endpoint` once upstream supports it.
+
+    """
+    logger.info("Testing metrics endpoint relation data")
+    app_data = await get_application_data(ops_test, APP_NAME, METRICS_ENDPOINT)
+    scrape_jobs = app_data["scrape_jobs"]
+    assert str(METRICS_PORT) in scrape_jobs
+    assert METRICS_PATH in scrape_jobs
 
 
 @pytest.mark.xfail(
