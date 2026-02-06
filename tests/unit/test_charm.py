@@ -365,7 +365,8 @@ def test_storage_relation_changed_success(
 
     # Assert
     mock_velero.remove_storage_locations.assert_called_once()
-    mock_velero.is_storage_configured.assert_called_once()
+    # is_storage_configured called twice: storage check + schedule reconciliation
+    assert mock_velero.is_storage_configured.call_count == 2
     mock_velero.configure_storage_locations.calls()
     mock_velero.configure_storage_locations.assert_called_once_with(mock_lightkube_client, ANY)
     _, provider = mock_velero.configure_storage_locations.call_args[0]
@@ -1086,3 +1087,402 @@ def test_run_list_backups_action_failed(
         # Act and Assert
         with pytest.raises(testing.ActionFailed):
             ctx.run(ctx.on.action("list-backups"), testing.State())
+
+
+def test_reconcile_schedules_creates_schedule(mock_velero, mock_lightkube_client):
+    """Test that _reconcile_schedules creates a schedule when spec has schedule field."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.is_installed.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = Relation(
+            endpoint=VELERO_BACKUP_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data={
+                "app": "test-app",
+                "model": "test-model",
+                "relation_name": "test-endpoint",
+                "spec": '{"include_namespaces": ["test-namespace"], "schedule": "0 2 * * *"}',
+            },
+        )
+
+        # Act
+        state_out = ctx.run(
+            ctx.on.relation_changed(relation),
+            testing.State(relations=[relation]),
+        )
+
+        # Assert
+        mock_velero.create_or_update_schedule.assert_called_once()
+        call_args = mock_velero.create_or_update_schedule.call_args
+        assert call_args[0][1] == "test-app-test-endpoint-"
+        assert call_args[1]["labels"]["app"] == "test-app"
+        assert call_args[1]["labels"]["endpoint"] == "test-endpoint"
+        assert state_out.unit_status == testing.ActiveStatus(READY_MESSAGE)
+
+
+def test_reconcile_schedules_deletes_schedule_when_no_schedule_in_spec(
+    mock_velero, mock_lightkube_client
+):
+    """Test that _reconcile_schedules deletes schedule when spec has no schedule field."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.is_installed.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = Relation(
+            endpoint=VELERO_BACKUP_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data={
+                "app": "test-app",
+                "model": "test-model",
+                "relation_name": "test-endpoint",
+                "spec": '{"include_namespaces": ["test-namespace"]}',
+            },
+        )
+
+        # Act
+        ctx.run(
+            ctx.on.relation_changed(relation),
+            testing.State(relations=[relation]),
+        )
+
+        # Assert
+        mock_velero.delete_schedule_by_labels.assert_called_once()
+        call_args = mock_velero.delete_schedule_by_labels.call_args
+        assert call_args[1]["labels"]["app"] == "test-app"
+        assert call_args[1]["labels"]["endpoint"] == "test-endpoint"
+
+
+def test_reconcile_schedules_handles_create_error(mock_velero, mock_lightkube_client, caplog):
+    """Test that _reconcile_schedules handles VeleroError during schedule creation."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.is_installed.return_value = True
+        mock_velero.create_or_update_schedule.side_effect = VeleroError("Schedule creation failed")
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = Relation(
+            endpoint=VELERO_BACKUP_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data={
+                "app": "test-app",
+                "model": "test-model",
+                "relation_name": "test-endpoint",
+                "spec": '{"include_namespaces": ["test-namespace"], "schedule": "0 2 * * *"}',
+            },
+        )
+
+        # Act
+        state_out = ctx.run(
+            ctx.on.relation_changed(relation),
+            testing.State(relations=[relation]),
+        )
+
+        # Assert
+        assert state_out.unit_status == testing.ActiveStatus(READY_MESSAGE)
+        assert "Failed to create/update schedule" in caplog.text
+
+
+def test_reconcile_schedules_handles_delete_error(mock_velero, mock_lightkube_client, caplog):
+    """Test that _reconcile_schedules handles VeleroError during schedule deletion."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.is_installed.return_value = True
+        mock_velero.delete_schedule_by_labels.side_effect = VeleroError("Schedule deletion failed")
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = Relation(
+            endpoint=VELERO_BACKUP_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data={
+                "app": "test-app",
+                "model": "test-model",
+                "relation_name": "test-endpoint",
+                "spec": '{"include_namespaces": ["test-namespace"]}',
+            },
+        )
+
+        # Act
+        state_out = ctx.run(
+            ctx.on.relation_changed(relation),
+            testing.State(relations=[relation]),
+        )
+
+        # Assert
+        assert state_out.unit_status == testing.ActiveStatus(READY_MESSAGE)
+        assert "Failed to delete schedule" in caplog.text
+
+
+def test_reconcile_schedules_skips_invalid_spec(mock_velero, mock_lightkube_client, caplog):
+    """Test that _reconcile_schedules skips relations with invalid spec JSON."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.is_installed.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = Relation(
+            endpoint=VELERO_BACKUP_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data={
+                "app": "test-app",
+                "model": "test-model",
+                "relation_name": "test-endpoint",
+                "spec": "invalid-json{{{",
+            },
+        )
+
+        # Act
+        state_out = ctx.run(
+            ctx.on.relation_changed(relation),
+            testing.State(relations=[relation]),
+        )
+
+        # Assert
+        mock_velero.create_or_update_schedule.assert_not_called()
+        mock_velero.delete_schedule_by_labels.assert_not_called()
+        assert "Failed to parse backup spec" in caplog.text
+        assert state_out.unit_status == testing.ActiveStatus(READY_MESSAGE)
+
+
+def test_reconcile_schedules_skips_missing_app_or_endpoint(mock_velero, mock_lightkube_client):
+    """Test that _reconcile_schedules skips relations with missing app or endpoint."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.is_installed.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = Relation(
+            endpoint=VELERO_BACKUP_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data={
+                "app": "test-app",
+                "model": "test-model",
+                "spec": '{"include_namespaces": ["test-namespace"], "schedule": "0 2 * * *"}',
+            },
+        )
+
+        # Act
+        ctx.run(
+            ctx.on.relation_changed(relation),
+            testing.State(relations=[relation]),
+        )
+
+        # Assert
+        mock_velero.create_or_update_schedule.assert_not_called()
+        mock_velero.delete_schedule_by_labels.assert_not_called()
+
+
+def test_reconcile_schedules_skips_relation_without_app(mock_velero, mock_lightkube_client):
+    """Test that _reconcile_schedules skips relations where relation.app is None."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.is_installed.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+
+        # Use context manager to access charm instance
+        with ctx(ctx.on.collect_unit_status(), testing.State()) as mgr:
+            charm = mgr.charm
+
+            # Reset mock calls from charm initialization
+            mock_velero.reset_mock()
+
+            # Create a mock relation with app=None
+            mock_relation = MagicMock()
+            mock_relation.app = None
+
+            # Patch the model.relations.get to return our mock relation
+            with patch.object(charm.model.relations, "get", return_value=[mock_relation]):
+                # Directly call _reconcile_schedules
+                charm._reconcile_schedules()
+
+            # Assert - no schedule operations should have been called
+            mock_velero.create_or_update_schedule.assert_not_called()
+            mock_velero.delete_schedule_by_labels.assert_not_called()
+
+
+def test_relation_broken_cleans_up_schedule(mock_velero, mock_lightkube_client):
+    """Test that relation-broken event cleans up schedules."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.is_installed.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = Relation(
+            endpoint=VELERO_BACKUP_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data={
+                "app": "test-app",
+                "model": "test-model",
+                "relation_name": "test-endpoint",
+                "spec": '{"include_namespaces": ["test-namespace"], "schedule": "0 2 * * *"}',
+            },
+        )
+
+        # Act
+        ctx.run(
+            ctx.on.relation_broken(relation),
+            testing.State(relations=[relation]),
+        )
+
+        # Assert
+        # Get the actual call to verify labels (model name is auto-generated by test framework)
+        call_args = mock_velero.delete_schedule_by_labels.call_args
+        assert call_args is not None, "delete_schedule_by_labels was not called"
+        labels = call_args.kwargs["labels"]
+        assert labels["app"] == "test-app"
+        assert labels["endpoint"] == "test-endpoint"
+        assert labels["managed-by"] == "velero-operator"
+        assert "model" in labels  # Model name is present (but auto-generated)
+
+
+def test_relation_broken_missing_app_name_or_endpoint(mock_velero, mock_lightkube_client, caplog):
+    """Test that relation-broken event handles missing app_name or endpoint gracefully."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.is_installed.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = Relation(
+            endpoint=VELERO_BACKUP_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data={
+                "spec": '{"include_namespaces": ["test-namespace"]}',
+                # Missing "app" and "relation_name" fields
+            },
+        )
+
+        # Act
+        with caplog.at_level("DEBUG"):
+            ctx.run(
+                ctx.on.relation_broken(relation),
+                testing.State(relations=[relation]),
+            )
+
+        # Assert - cleanup should not be called when app_name or endpoint is missing
+        mock_velero.delete_schedule_by_labels.assert_not_called()
+        assert "Skipping schedule cleanup" in caplog.text
+
+
+def test_relation_broken_delete_fails(mock_velero, mock_lightkube_client):
+    """Test that relation-broken event handles delete failures gracefully."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.is_installed.return_value = True
+        mock_velero.delete_schedule_by_labels.side_effect = VeleroError("Delete failed")
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = Relation(
+            endpoint=VELERO_BACKUP_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data={
+                "app": "test-app",
+                "model": "test-model",
+                "relation_name": "test-endpoint",
+                "spec": '{"include_namespaces": ["test-namespace"], "schedule": "0 2 * * *"}',
+            },
+        )
+
+        # Act - should not raise exception
+        ctx.run(
+            ctx.on.relation_broken(relation),
+            testing.State(relations=[relation]),
+        )
+
+        # Assert - cleanup was attempted
+        mock_velero.delete_schedule_by_labels.assert_called_once()
+
+
+def test_run_list_backups_action_with_app_and_endpoint(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test the run_list_backups_action handler with app and endpoint parameters."""
+    # Arrange
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.list_backups.return_value = [
+            BackupInfo(
+                uid="backup1-uid",
+                name="backup1",
+                labels={
+                    "app": "test-app",
+                    "endpoint": "test-endpoint",
+                    "model": "test-model",
+                },
+                annotations={},
+                phase="Completed",
+                start_timestamp="2023-01-01T00:00:00Z",
+            ),
+        ]
+        ctx = testing.Context(VeleroOperatorCharm)
+
+        # Act
+        ctx.run(
+            ctx.on.action("list-backups", params={"app": "test-app", "endpoint": "test-endpoint"}),
+            testing.State(),
+        )
+
+        # Assert
+        call_args = mock_velero.list_backups.call_args
+        labels = call_args.kwargs["labels"]
+        assert labels["app"] == "test-app"
+        assert labels["endpoint"] == "test-endpoint"
+        assert ctx.action_results.get("status") == "success"

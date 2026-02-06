@@ -12,10 +12,18 @@ from .restore import (
     RestoreStatus,
     RestoreStatusModel,
 )
+from .schedule import (
+    Schedule,
+    ScheduleModel,
+    ScheduleSpecModel,
+    ScheduleStatus,
+    ScheduleStatusModel,
+)
 
 __all__ = [
     "Backup",
     "Restore",
+    "Schedule",
     "ExistingResourcePolicy",
     "BackupSpecModel",
     "BackupStatusModel",
@@ -25,4 +33,8 @@ __all__ = [
     "RestoreStatusModel",
     "RestoreModel",
     "RestoreStatus",
+    "ScheduleSpecModel",
+    "ScheduleStatusModel",
+    "ScheduleModel",
+    "ScheduleStatus",
 ]

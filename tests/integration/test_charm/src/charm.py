@@ -25,6 +25,10 @@ class TestCharm(ops.CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
 
+        # Get schedule config, use None if empty string
+        schedule_config = str(self.config.get("schedule", "")) or None
+        paused_config = bool(self.config.get("paused", False)) if schedule_config else None
+
         self._first_config = VeleroBackupProvider(
             self,
             FIRST_RELATION_NAME,
@@ -39,6 +43,9 @@ class TestCharm(ops.CharmBase):
                 label_selector={"app": "dummy"},
                 ttl=str(self.config["ttl"]),
                 include_cluster_resources=None,
+                schedule=schedule_config,
+                paused=paused_config,
+                skip_immediately=True if schedule_config else None,
             ),
             refresh_event=[self.on.config_changed],
         )
