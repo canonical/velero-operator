@@ -14,6 +14,7 @@ import ops
 from charms.data_platform_libs.v0.azure_storage import AzureStorageRequires
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from charms.data_platform_libs.v0.s3 import S3Requirer
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.velero_libs.v0.velero_backup_config import VeleroBackupRequier
 from lightkube import ApiError, Client
@@ -91,6 +92,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             ],
         )
 
+        self._grafana_dashboard = GrafanaDashboardProvider(self)
         self._backup_configs = VeleroBackupRequier(self, VELERO_BACKUPS_ENDPOINT)
 
         self.framework.observe(self.on.install, self._reconcile)
