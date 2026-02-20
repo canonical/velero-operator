@@ -337,7 +337,7 @@ async def test_schedule_cleanup_on_relation_broken(ops_test: OpsTest, lightkube_
             )
             assert len(schedules) == 1, f"Expected 1 schedule, found {len(schedules)}"
 
-    logger.info(f"Schedule exists: {schedules[0]['metadata']['name']}")
+    logger.info(f"Schedule exists: {schedules[0]['metadata']['name']}")  # type: ignore
 
     # Remove the relation
     logger.info(f"Removing relation with {TEST_APP_FIRST_RELATION_NAME}")
