@@ -39,7 +39,7 @@ from libs.azure_service_principal import AzureServicePrincipalRequirer
 from velero import (
     AzureStorageProvider,
     BackupInfo,
-    ExistingResourcePolicy,
+    RestoreParams,
     S3StorageProvider,
     StorageProviderError,
     Velero,
@@ -323,10 +323,12 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
     def on_restore_action(self, event: ops.ActionEvent) -> None:
         """Handle the restore action event."""
-        backup_uid = event.params["backup-uid"]
-        existing_resource_policy = ExistingResourcePolicy(
-            event.params.get("existing-resource-policy", "none")
-        )
+        try:
+            restore_params = RestoreParams.model_validate(event.params)
+        except ValidationError as ve:
+            event.fail(f"Invalid parameters: {ve}")
+            return
+
         check_message = (
             "You may check for more information using "
             "`run-cli command='restore describe {restore_name}'` "
@@ -343,8 +345,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         try:
             restore_name = self.velero.create_restore(
                 self.lightkube_client,
-                backup_uid,
-                existing_resource_policy,
+                restore_params,
                 annotations={
                     "created-at": str(round(time.time())),
                 },

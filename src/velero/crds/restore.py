@@ -7,7 +7,7 @@ Reference: https://velero.io/docs/v1.16/api-types/restore
 """
 
 from enum import Enum
-from typing import ClassVar, List, Optional
+from typing import ClassVar, Dict, List, Optional
 
 from lightkube.codecs import resource_registry
 from lightkube.core import resource as res
@@ -29,6 +29,12 @@ class RestoreSpecModel(DictMixin):
     backupName: str
     restorePVs: Optional[bool] = None
     existingResourcePolicy: Optional[ExistingResourcePolicy] = None
+    includedNamespaces: Optional[List[str]] = None
+    excludedNamespaces: Optional[List[str]] = None
+    includedResources: Optional[List[str]] = None
+    excludedResources: Optional[List[str]] = None
+    labelSelector: Optional[Dict[str, Dict[str, str]]] = None
+    orLabelSelectors: Optional[List[Dict[str, Dict[str, str]]]] = None
 
 
 @dataclass

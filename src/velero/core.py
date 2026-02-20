@@ -5,7 +5,6 @@
 
 import logging
 import subprocess
-from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Union
 
 from charms.velero_libs.v0.velero_backup_config import VeleroBackupSpec
@@ -53,82 +52,24 @@ from k8s_utils import (
 from .crds import (
     Backup,
     BackupSpecModel,
-    ExistingResourcePolicy,
     Restore,
     RestoreSpecModel,
     Schedule,
     ScheduleSpecModel,
 )
 from .providers import VeleroStorageProvider
+from .utils import (
+    BackupInfo,
+    RestoreParams,
+    ScheduleInfo,
+    VeleroBackupStatusError,
+    VeleroCLIError,
+    VeleroError,
+    VeleroRestoreStatusError,
+    VeleroStatusError,
+)
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class BackupInfo:
-    """Data class to hold backup information."""
-
-    uid: str
-    name: str
-    labels: Dict[str, str]
-    annotations: Dict[str, str]
-    phase: str
-    start_timestamp: str
-    completion_timestamp: Optional[str] = None
-
-
-@dataclass
-class ScheduleInfo:
-    """Data class to hold schedule information."""
-
-    name: str
-    schedule: str
-    phase: str
-    labels: Dict[str, str]
-    paused: bool = False
-    last_backup: Optional[str] = None
-
-
-class VeleroError(Exception):
-    """Base class for Velero exceptions."""
-
-
-class VeleroStatusError(VeleroError):
-    """Exception raised for Velero status errors."""
-
-
-class VeleroBackupStatusError(VeleroStatusError):
-    """Exception raised for Velero backup status errors."""
-
-    def __init__(self, name: str, reason: str) -> None:
-        """Initialize the VeleroBackupStatusError with a name and reason."""
-        super().__init__(f"Velero backup '{name}' failed: {reason}")
-        self.name = name
-        self.reason = reason
-
-
-class VeleroRestoreStatusError(VeleroStatusError):
-    """Exception raised for Velero restore status errors."""
-
-    def __init__(self, name: str, reason: str) -> None:
-        """Initialize the VeleroRestoreStatusError with a name and reason."""
-        super().__init__(f"Velero restore '{name}' failed: {reason}")
-        self.name = name
-        self.reason = reason
-
-
-class VeleroScheduleStatusError(VeleroStatusError):
-    """Exception raised for Velero schedule status errors."""
-
-    def __init__(self, name: str, reason: str) -> None:
-        """Initialize the VeleroScheduleStatusError with a name and reason."""
-        super().__init__(f"Velero schedule '{name}' failed: {reason}")
-        self.name = name
-        self.reason = reason
-
-
-class VeleroCLIError(VeleroError):
-    """Exception raised for Velero CLI errors."""
 
 
 class ScheduleMixin:
@@ -1136,8 +1077,7 @@ class Velero(ScheduleMixin):
     def create_restore(
         self,
         kube_client: Client,
-        backup_uid: str,
-        existing_resource_policy: ExistingResourcePolicy = ExistingResourcePolicy.No,
+        restore_params: RestoreParams,
         labels: Optional[Dict[str, str]] = None,
         annotations: Optional[Dict[str, str]] = None,
     ) -> str:
@@ -1145,10 +1085,7 @@ class Velero(ScheduleMixin):
 
         Args:
             kube_client (Client): The lightkube client used to interact with the cluster.
-            backup_uid (str): The UID of the backup to restore from.
-                Will be used to generate the restore name.
-            existing_resource_policy (ExistingResourcePolicy, optional):
-                Policy for existing resources. Defaults to ExistingResourcePolicy.No ("none").
+            restore_params (VeleroRestoreParams): The restore parameters containing the details.
             labels (Optional[Dict[str, str]], optional):
                 Additional labels to apply to the restore resource.
             annotations (Optional[Dict[str, str]], optional):
@@ -1162,15 +1099,15 @@ class Velero(ScheduleMixin):
             VeleroError: If the restore creation fails.
             VeleroRestoreStatusError: If the restore status is not successful.
         """
-        logger.info("Checking if Velero Backup with UID '%s' exists", backup_uid)
+        logger.info("Checking if Velero Backup with UID '%s' exists", restore_params.backup_uid)
         backup_name = k8s_get_backup_name_by_uid(
             kube_client,
-            backup_uid,
+            restore_params.backup_uid,
             self._namespace,
         )
 
         if not backup_name:
-            raise VeleroError(f"Velero Backup with UID '{backup_uid}' not found")
+            raise VeleroError(f"Velero Backup with UID '{restore_params.backup_uid}' not found")
 
         restore = Restore(
             metadata=ObjectMeta(
@@ -1181,7 +1118,19 @@ class Velero(ScheduleMixin):
             ),
             spec=RestoreSpecModel(
                 backupName=backup_name,
-                existingResourcePolicy=existing_resource_policy,
+                existingResourcePolicy=restore_params.existing_resource_policy,
+                includedNamespaces=restore_params.include_namespaces,
+                includedResources=restore_params.include_resources,
+                excludedNamespaces=restore_params.exclude_namespaces,
+                excludedResources=restore_params.exclude_resources,
+                labelSelector=(
+                    {"matchLabels": restore_params.selector} if restore_params.selector else None
+                ),
+                orLabelSelectors=(
+                    [{"matchLabels": {k: v}} for k, v in restore_params.or_selector.items()]
+                    if restore_params.or_selector
+                    else None
+                ),
             ),
         )
 

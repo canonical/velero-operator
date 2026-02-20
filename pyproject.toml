@@ -55,7 +55,7 @@ ignore-words-list = "NotIn"
 # LSPs and formatters
 [tool.pyright]
 include = ["src"]
-extraPaths = ["lib"]
+extraPaths = ["lib", "src"]
 exclude = ["src/libs/*"]
 
 [tool.black]

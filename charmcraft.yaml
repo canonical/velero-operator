@@ -143,6 +143,26 @@ actions:
         examples:
         - "none"
         - "update"
+      include-namespaces:
+        type: string
+        description: "Comma-separated namespaces to include in the restore."
+      exclude-namespaces:
+        type: string
+        description: "Comma-separated namespaces to exclude from the restore."
+      include-resources:
+        type: string
+        description: "Comma-separated Kubernetes resources to include."
+      exclude-resources:
+        type: string
+        description: "Comma-separated Kubernetes resources to exclude."
+      selector:
+        type: string
+        description: |
+          "Kubernetes label selectors (e.g. `key1=val1,key2=val2`) to filter objects to restore."
+      or-selector:
+        type: string
+        description: |
+          "OR label selectors (e.g. `key1=val1 or key2=val2 or key3=val3`) to filter objects to restore."
     required:
     - backup-uid
     additionalProperties: false
