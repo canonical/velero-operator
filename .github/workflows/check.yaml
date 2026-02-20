@@ -15,7 +15,7 @@ jobs:
 
     steps:
     - name: Check out code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Install dependencies
       run: sudo apt-get install python3-pip tox
@@ -29,7 +29,7 @@ jobs:
 
     steps:
     - name: Check out code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Install dependencies
       run: sudo apt-get install python3-pip tox
@@ -37,13 +37,52 @@ jobs:
     - name: Run unit tests
       run: tox -e unit
 
-  integration:
-    name: Integration Test (build and deploy)
+  setup:
+    name: Setup tests
     runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
 
     steps:
     - name: Check out repo
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.13
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq
+
+    - name: Discover individual tests
+      id: discover
+      run: |
+        tests=$(find tests/integration -maxdepth 1 -type f -name 'test_*.py' \
+          | sort -u \
+          | jq -R -s -c 'split("\n")[:-1]')
+        echo "$tests"
+
+        if [ "$tests" = "[]" ]; then
+          echo "No integration tests discovered via filesystem lookup"
+          exit 1
+        fi
+
+        echo "matrix={\"test_file\":$tests}" >> "$GITHUB_OUTPUT"
+
+  integration:
+    name: Integration Test
+    runs-on: ubuntu-24.04
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+
+    steps:
+    - name: Check out repo
+      uses: actions/checkout@v6
 
     - name: Set up Python 3.13
       uses: actions/setup-python@v5
@@ -57,12 +96,6 @@ jobs:
 
     - name: Setup operator environment
       run: |
-        # Use https://github.com/canonical/concierge
-        # No currently stable action to set up Canonical Kubernetes
-        # https://github.com/canonical/concierge/issues/51
-        sudo apt-get remove -y docker-ce docker-ce-cli containerd.io
-        sudo rm -rf /run/containerd
-
         python -m pip install --upgrade pip
         python -m pip install tox
 
@@ -70,11 +103,7 @@ jobs:
         sudo concierge prepare -p k8s
 
     - name: Run integration tests
-      env:
-        AZURE_SECRET_KEY: ${{ secrets.AZURE_SECRET_KEY }}
-        AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
-        AZURE_CONTAINER: ${{ secrets.AZURE_CONTAINER }}
-      run: tox -vve integration -- --model testing
+      run: tox -vve integration -- --model testing ${{ matrix.test_file }}
 
     # On failure, capture debugging resources
     - name: Get all
