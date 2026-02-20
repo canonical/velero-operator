@@ -37,6 +37,20 @@ jobs:
     - name: Run unit tests
       run: tox -e unit
 
+  pack-velero-operator:
+    name: Pack Velero Operator charm
+    uses: canonical/data-platform-workflows/.github/workflows/build_charm.yaml@v42.0.0
+    with:
+      path-to-charm-directory: .
+      cache: false
+
+  pack-test-charm:
+    name: Pack interface consumer charm
+    uses: canonical/data-platform-workflows/.github/workflows/build_charm.yaml@v42.0.0
+    with:
+      path-to-charm-directory: tests/integration/test_charm
+      cache: false
+
   setup:
     name: Setup tests
     runs-on: ubuntu-24.04
@@ -75,11 +89,13 @@ jobs:
   integration:
     name: Integration Test
     runs-on: ubuntu-24.04
-    needs: setup
+    needs:
+      - pack-velero-operator
+      - pack-test-charm
+      - setup
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
-
     steps:
     - name: Check out repo
       uses: actions/checkout@v6
@@ -93,6 +109,23 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: 21
+
+    - name: Download built charm artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: packed-charm-*
+        merge-multiple: true
+        path: ./charms
+
+    - name: Set charm paths
+      run: |
+        # Find each charm file by its expected prefix
+        VELERO_OPERATOR_CHARM_PATH=$(find ./charms -type f -name 'velero-operator_*.charm' -print -quit)
+        TEST_CHARM_PATH=$(find ./charms -type f -name 'test-charm-velero_*.charm' -print -quit)
+        echo "VELERO_OPERATOR_CHARM_PATH=$VELERO_OPERATOR_CHARM_PATH" >> $GITHUB_ENV
+        echo "TEST_CHARM_PATH=$TEST_CHARM_PATH" >> $GITHUB_ENV
+        echo "Velero Operator charm: $VELERO_OPERATOR_CHARM_PATH"
+        echo "Test charm: $TEST_CHARM_PATH"
 
     - name: Setup operator environment
       run: |

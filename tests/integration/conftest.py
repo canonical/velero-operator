@@ -8,16 +8,19 @@ import os
 import socket
 import subprocess
 import uuid
+from pathlib import Path
 
 import boto3
 import botocore.exceptions
 import pytest
+import pytest_asyncio
 from azure.core.exceptions import ResourceExistsError, ServiceRequestError
 from azure.storage.blob import BlobServiceClient
 from helpers import k8s_assert_resource_exists
 from lightkube import ApiError, Client, codecs
 from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.core_v1 import Namespace
+from pytest_operator.plugin import OpsTest
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 logger = logging.getLogger(__name__)
@@ -32,6 +35,8 @@ K8S_TEST_NAMESPACE = "velero-integration-tests"
 K8S_TEST_RESOURCES_YAML_PATH = "./tests/integration/resources/test_resources.yaml.j2"
 K8S_TEST_PVC_RESOURCE_NAME = "test-pvc"
 K8S_TEST_PVC_FILE_PATH = "test-file"
+VELERO_OPERATOR_CHARM_ENV = "VELERO_OPERATOR_CHARM_PATH"
+TEST_CHARM_ENV = "TEST_CHARM_PATH"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -286,6 +291,40 @@ def lightkube_client() -> Client:
     """Return a lightkube client to use in this session."""
     client = Client(field_manager="integration-tests")
     return client
+
+
+@pytest_asyncio.fixture(scope="module")
+async def velero_operator_charm_path(ops_test: OpsTest) -> Path | str:
+    """Return prebuilt velero-operator charm path, or build it if not provided."""
+    if prebuilt_path := os.environ.get(VELERO_OPERATOR_CHARM_ENV):
+        if os.path.exists(prebuilt_path):
+            logger.info("Using prebuilt velero charm from %s", prebuilt_path)
+            return prebuilt_path
+        logger.warning(
+            "%s is set to %s but file does not exist; building charm instead",
+            VELERO_OPERATOR_CHARM_ENV,
+            prebuilt_path,
+        )
+
+    logger.info("Building velero-operator charm")
+    return await ops_test.build_charm(".")
+
+
+@pytest_asyncio.fixture(scope="module")
+async def test_charm_path(ops_test: OpsTest) -> Path | str:
+    """Return prebuilt test charm path, or build it if not provided."""
+    if prebuilt_path := os.environ.get(TEST_CHARM_ENV):
+        if os.path.exists(prebuilt_path):
+            logger.info("Using prebuilt test charm from %s", prebuilt_path)
+            return prebuilt_path
+        logger.warning(
+            "%s is set to %s but file does not exist; building charm instead",
+            TEST_CHARM_ENV,
+            prebuilt_path,
+        )
+
+    logger.info("Building integration test charm")
+    return await ops_test.build_charm("tests/integration/test_charm")
 
 
 @pytest.fixture(scope="module")

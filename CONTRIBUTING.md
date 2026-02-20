@@ -136,3 +136,16 @@ Then you can run the integration tests with:
 ```bash
 tox -vve integration -- --model velero-testing
 ```
+
+#### 3. Reuse prebuilt charm artifacts (optional)
+
+Integration tests can reuse prebuilt charm files instead of building them during test execution.
+If these environment variables are set and point to existing files, tests will deploy those
+artifacts directly; otherwise they fall back to building charms.
+
+```bash
+export VELERO_OPERATOR_CHARM_PATH=/path/to/velero-operator_ubuntu-24.04-amd64.charm
+export TEST_CHARM_PATH=/path/to/test-charm_ubuntu-24.04-amd64.charm
+
+tox -vve integration -- --model velero-testing
+```
