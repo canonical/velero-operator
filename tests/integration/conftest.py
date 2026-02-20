@@ -152,6 +152,7 @@ def setup_azurite() -> AzureBlobConnectionInfo:
             "--blobPort",
             str(AZURITE_BLOB_PORT),
             "--loose",
+            "--skipApiVersionCheck",
         ]
     )
 
