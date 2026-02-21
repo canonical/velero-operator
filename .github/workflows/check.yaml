@@ -42,14 +42,14 @@ jobs:
     uses: canonical/data-platform-workflows/.github/workflows/build_charm.yaml@v42.0.0
     with:
       path-to-charm-directory: .
-      cache: false
+      cache: true
 
   pack-test-charm:
     name: Pack interface consumer charm
     uses: canonical/data-platform-workflows/.github/workflows/build_charm.yaml@v42.0.0
     with:
       path-to-charm-directory: tests/integration/test_charm
-      cache: false
+      cache: true
 
   setup:
     name: Setup tests
