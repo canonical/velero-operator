@@ -5,11 +5,13 @@
 
 from .core import (
     BackupInfo,
+    ScheduleInfo,
     Velero,
     VeleroBackupStatusError,
     VeleroCLIError,
     VeleroError,
     VeleroRestoreStatusError,
+    VeleroScheduleStatusError,
     VeleroStatusError,
 )
 from .crds import ExistingResourcePolicy
@@ -33,6 +35,8 @@ __all__ = [
     "VeleroStatusError",
     "ExistingResourcePolicy",
     "BackupInfo",
+    "ScheduleInfo",
     "VeleroBackupStatusError",
     "VeleroRestoreStatusError",
+    "VeleroScheduleStatusError",
 ]

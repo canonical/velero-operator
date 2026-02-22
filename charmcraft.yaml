@@ -185,3 +185,5 @@ requires:
 provides:
   metrics-endpoint:
     interface: prometheus_scrape
+  grafana-dashboard:
+    interface: grafana_dashboard
