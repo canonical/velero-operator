@@ -27,15 +27,17 @@ METRICS_PATH = "/metrics"
 
 
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy(ops_test: OpsTest):
+async def test_build_and_deploy(ops_test: OpsTest, velero_operator_charm_path):
     """Build and deploy the velero-operator with opentelemetry-collector-k8s."""
     logger.info("Building and deploying velero-operator charm with opentelemetry-collector-k8s")
-    charm = await ops_test.build_charm(".")
     model = get_model(ops_test)
 
     await asyncio.gather(
         model.deploy(
-            charm, application_name=APP_NAME, trust=True, config={"use-node-agent": True}
+            velero_operator_charm_path,
+            application_name=APP_NAME,
+            trust=True,
+            config={"use-node-agent": True},
         ),
         model.deploy(OTEL_COLLECTOR_APP, channel=OTEL_COLLECTOR_CHANNEL, trust=True),
     )

@@ -10,6 +10,8 @@ import uuid
 import pytest
 from helpers import (
     APP_NAME,
+    AZURE_AUTH_INTEGRATOR,
+    AZURE_AUTH_INTEGRATOR_CHANNEL,
     AZURE_INTEGRATOR,
     AZURE_INTEGRATOR_CHANNEL,
     DEPLOYMENT_IMAGE_ERROR_MESSAGE_1,
@@ -37,22 +39,24 @@ BACKUP_NAME = f"test-backup-{uuid.uuid4()}"
 
 
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy(ops_test: OpsTest, azure_connection_info):
+async def test_build_and_deploy(
+    ops_test: OpsTest, azure_connection_info, velero_operator_charm_path
+):
     """Build the velero-operator and deploy it with the integrator charms."""
     logger.info("Building and deploying velero-operator charm with azure-integrator")
-    charm = await ops_test.build_charm(".")
     model = get_model(ops_test)
 
     await asyncio.gather(
         model.deploy(
-            charm,
+            velero_operator_charm_path,
             application_name=APP_NAME,
             trust=True,
             config={"use-node-agent": True, "default-volumes-to-fs-backup": True},
         ),
         model.deploy(AZURE_INTEGRATOR, channel=AZURE_INTEGRATOR_CHANNEL),
+        model.deploy(AZURE_AUTH_INTEGRATOR, channel=AZURE_AUTH_INTEGRATOR_CHANNEL),
         model.wait_for_idle(
-            apps=[APP_NAME, AZURE_INTEGRATOR],
+            apps=[APP_NAME, AZURE_INTEGRATOR, AZURE_AUTH_INTEGRATOR],
             status="blocked",
             timeout=TIMEOUT,
         ),
@@ -96,6 +100,64 @@ async def test_relate_azure_storage_integrator(ops_test: OpsTest):
     model = get_model(ops_test)
 
     await model.integrate(APP_NAME, AZURE_INTEGRATOR)
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            timeout=TIMEOUT,
+        )
+    assert_app_status(model.applications[APP_NAME], [READY_MESSAGE])
+
+
+@pytest.mark.abort_on_fail
+async def test_relate_azure_auth_integrator(ops_test: OpsTest):
+    """Test the relation between the velero-operator charm and the azure-integrator charm for auth.
+
+    As we don't have a real Azure K8s cluster to test against, we will use dummy service principal
+    creds and verify that the velero-operator charm accepts them and reaches a blocked state
+    as it fails to retrieve the ResourceGroup of the Azure K8s nodes.
+    """
+    logger.info("Setting credentials for %s", AZURE_AUTH_INTEGRATOR)
+    model = get_model(ops_test)
+    app = model.applications[AZURE_AUTH_INTEGRATOR]
+
+    _, stdout, _ = await ops_test.juju(
+        *[
+            "add-secret",
+            AZURE_AUTH_SECRET_NAME,
+            "client-id=1",
+            "client-secret=2",
+        ]
+    )
+    await model.grant_secret(AZURE_AUTH_SECRET_NAME, AZURE_AUTH_INTEGRATOR)
+    await app.set_config({"credentials": stdout.strip(), "tenant-id": "3", "subscription-id": "4"})
+    await model.wait_for_idle(
+        apps=[AZURE_AUTH_INTEGRATOR],
+        status="active",
+        timeout=TIMEOUT,
+    )
+
+    logger.info("Relating velero-operator to %s", AZURE_AUTH_INTEGRATOR)
+    await model.integrate(APP_NAME, AZURE_AUTH_INTEGRATOR)
+    async with ops_test.fast_forward(fast_interval="60s"):
+        await model.wait_for_idle(
+            apps=[APP_NAME],
+            status="blocked",
+            timeout=TIMEOUT,
+        )
+    assert_app_status(
+        model.applications[APP_NAME],
+        ["Invalid configuration: Failed to get the ResourceGroup of the Azure Kubernetes nodes"],
+    )
+
+
+@pytest.mark.abort_on_fail
+async def test_unrelate_azure_auth_integrator(ops_test: OpsTest):
+    """Test unrelate the velero-operator charm and the azure-auth-integrator charm."""
+    logger.info("Unrelating %s to velero-operator", AZURE_AUTH_INTEGRATOR)
+    model = get_model(ops_test)
+
+    await ops_test.juju(*["remove-relation", APP_NAME, AZURE_AUTH_INTEGRATOR])
     async with ops_test.fast_forward(fast_interval="60s"):
         await model.wait_for_idle(
             apps=[APP_NAME],

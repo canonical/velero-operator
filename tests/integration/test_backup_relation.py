@@ -35,22 +35,25 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info):
+async def test_build_and_deploy(
+    ops_test: OpsTest,
+    s3_connection_info,
+    velero_operator_charm_path,
+    test_charm_path,
+):
     """Build and deploy the velero-operator and test charm."""
     logger.info("Building and deploying velero-operator charm and test charm")
-    velero_charm = await ops_test.build_charm(".")
-    test_charm = await ops_test.build_charm("tests/integration/test_charm")
     model = get_model(ops_test)
 
     await asyncio.gather(
         model.deploy(
-            velero_charm,
+            velero_operator_charm_path,
             application_name=APP_NAME,
             trust=True,
             config={"use-node-agent": True, "default-volumes-to-fs-backup": True},
         ),
         model.deploy(
-            test_charm,
+            test_charm_path,
             application_name=TEST_APP_NAME,
         ),
         model.deploy(S3_INTEGRATOR, channel=S3_INTEGRATOR_CHANNEL),

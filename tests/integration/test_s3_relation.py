@@ -34,15 +34,14 @@ BACKUP_NAME = f"test-backup-{uuid.uuid4()}"
 
 
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info):
+async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info, velero_operator_charm_path):
     """Build the velero-operator and deploy it with the integrator charms."""
     logger.info("Building and deploying velero-operator charm with s3-integrator")
-    charm = await ops_test.build_charm(".")
     model = get_model(ops_test)
 
     await asyncio.gather(
         model.deploy(
-            charm,
+            velero_operator_charm_path,
             application_name=APP_NAME,
             trust=True,
             config={"use-node-agent": True, "default-volumes-to-fs-backup": True},

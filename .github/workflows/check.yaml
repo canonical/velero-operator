@@ -15,7 +15,7 @@ jobs:
 
     steps:
     - name: Check out code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Install dependencies
       run: sudo apt-get install python3-pip tox
@@ -29,7 +29,7 @@ jobs:
 
     steps:
     - name: Check out code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Install dependencies
       run: sudo apt-get install python3-pip tox
@@ -37,13 +37,68 @@ jobs:
     - name: Run unit tests
       run: tox -e unit
 
-  integration:
-    name: Integration Test (build and deploy)
+  pack-velero-operator:
+    name: Pack Velero Operator charm
+    uses: canonical/data-platform-workflows/.github/workflows/build_charm.yaml@v42.0.0
+    with:
+      path-to-charm-directory: .
+      cache: true
+
+  pack-test-charm:
+    name: Pack interface consumer charm
+    uses: canonical/data-platform-workflows/.github/workflows/build_charm.yaml@v42.0.0
+    with:
+      path-to-charm-directory: tests/integration/test_charm
+      cache: true
+
+  setup:
+    name: Setup tests
     runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
 
     steps:
     - name: Check out repo
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.13
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq
+
+    - name: Discover individual tests
+      id: discover
+      run: |
+        tests=$(find tests/integration -maxdepth 1 -type f -name 'test_*.py' \
+          | sort -u \
+          | jq -R -s -c 'split("\n")[:-1]')
+        echo "$tests"
+
+        if [ "$tests" = "[]" ]; then
+          echo "No integration tests discovered via filesystem lookup"
+          exit 1
+        fi
+
+        echo "matrix={\"test_file\":$tests}" >> "$GITHUB_OUTPUT"
+
+  integration:
+    name: Integration Test
+    runs-on: ubuntu-24.04
+    needs:
+      - pack-velero-operator
+      - pack-test-charm
+      - setup
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    steps:
+    - name: Check out repo
+      uses: actions/checkout@v6
 
     - name: Set up Python 3.13
       uses: actions/setup-python@v5
@@ -55,14 +110,25 @@ jobs:
       with:
         node-version: 21
 
+    - name: Download built charm artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: packed-charm-*
+        merge-multiple: true
+        path: ./charms
+
+    - name: Set charm paths
+      run: |
+        # Find each charm file by its expected prefix
+        VELERO_OPERATOR_CHARM_PATH=$(find ./charms -type f -name 'velero-operator_*.charm' -print -quit)
+        TEST_CHARM_PATH=$(find ./charms -type f -name 'test-charm-velero_*.charm' -print -quit)
+        echo "VELERO_OPERATOR_CHARM_PATH=$VELERO_OPERATOR_CHARM_PATH" >> $GITHUB_ENV
+        echo "TEST_CHARM_PATH=$TEST_CHARM_PATH" >> $GITHUB_ENV
+        echo "Velero Operator charm: $VELERO_OPERATOR_CHARM_PATH"
+        echo "Test charm: $TEST_CHARM_PATH"
+
     - name: Setup operator environment
       run: |
-        # Use https://github.com/canonical/concierge
-        # No currently stable action to set up Canonical Kubernetes
-        # https://github.com/canonical/concierge/issues/51
-        sudo apt-get remove -y docker-ce docker-ce-cli containerd.io
-        sudo rm -rf /run/containerd
-
         python -m pip install --upgrade pip
         python -m pip install tox
 
@@ -70,11 +136,7 @@ jobs:
         sudo concierge prepare -p k8s
 
     - name: Run integration tests
-      env:
-        AZURE_SECRET_KEY: ${{ secrets.AZURE_SECRET_KEY }}
-        AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
-        AZURE_CONTAINER: ${{ secrets.AZURE_CONTAINER }}
-      run: tox -vve integration -- --model testing
+      run: tox -vve integration -- --model testing ${{ matrix.test_file }}
 
     # On failure, capture debugging resources
     - name: Get all
