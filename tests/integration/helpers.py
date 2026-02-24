@@ -49,7 +49,7 @@ MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials|azure-storage]"
 AZURE_INTEGRATOR = "azure-storage-integrator"
 AZURE_INTEGRATOR_CHANNEL = "latest/edge"
 AZURE_AUTH_INTEGRATOR = "azure-auth-integrator"
-AZURE_AUTH_INTEGRATOR_CHANNEL = "latest/edge"
+AZURE_AUTH_INTEGRATOR_CHANNEL = "1/edge"
 
 S3_INTEGRATOR = "s3-integrator"
 S3_INTEGRATOR_CHANNEL = "latest/stable"
@@ -459,7 +459,7 @@ def k8s_list_velero_schedules(
         group="velero.io", version="v1", kind="Schedule", plural="schedules"
     )
 
-    return list(client.list(schedule, namespace=namespace, labels=labels))
+    return list(client.list(schedule, namespace=namespace, labels=labels))  # type: ignore
 
 
 def verify_pvc_content(
