@@ -1,0 +1,126 @@
+rule_files:
+  - ../../../src/prometheus_alert_rules/prometheus_alert_rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # VeleroBackupFailed: fires after 15m of scheduled backup failure
+  - interval: 1m
+    input_series:
+      - series: 'velero_backup_last_status{schedule="daily"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: VeleroBackupFailed
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: VeleroBackupFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              schedule: daily
+            exp_annotations:
+              message: "Velero backup daily has failed"
+
+  # VeleroBackupFailing: escalates to critical after 12h of continuous failure
+  - interval: 5m
+    input_series:
+      - series: 'velero_backup_last_status{schedule="daily"}'
+        values: '0+0x160'
+    alert_rule_test:
+      - eval_time: 11h
+        alertname: VeleroBackupFailing
+        exp_alerts: []
+      - eval_time: 13h
+        alertname: VeleroBackupFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              schedule: daily
+            exp_annotations:
+              message: "Velero backup daily has been failing for the last 12h"
+
+  # VeleroNoNewDailyBackup: fires (warning) when no backup timestamp metric exists (absent)
+  - interval: 1h
+    input_series:
+      - series: 'velero_backup_last_status{schedule="daily"}'
+        values: '1+0x4'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: VeleroNoNewDailyBackup
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: VeleroNoNewDailyBackup
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              message: "Velero backup  has not run successfully in the last 25h"
+
+  # VeleroNoNewDailyBackup: fires (warning) when backup timestamp is stale (>25h old)
+  - interval: 5m
+    input_series:
+      - series: 'velero_backup_last_successful_timestamp{schedule="daily"}'
+        values: '0+0x340'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: VeleroNoNewDailyBackup
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: VeleroNoNewDailyBackup
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              schedule: daily
+            exp_annotations:
+              message: "Velero backup daily has not run successfully in the last 25h"
+
+  # VeleroNoNewWeeklyBackup: fires (critical) when backup timestamp is stale (>7d old)
+  - interval: 5m
+    input_series:
+      - series: 'velero_backup_last_successful_timestamp{schedule="weekly"}'
+        values: '0+0x2400'
+    alert_rule_test:
+      - eval_time: 7d
+        alertname: VeleroNoNewWeeklyBackup
+        exp_alerts: []
+      - eval_time: 8d1h
+        alertname: VeleroNoNewWeeklyBackup
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              schedule: weekly
+            exp_annotations:
+              message: "Velero backup weekly has not run successfully in the last 7d"
+
+  # VeleroBackupPartialFailures: fires when >50% of backups partially fail
+  - interval: 1m
+    input_series:
+      - series: 'velero_backup_partial_failure_total{schedule="daily"}'
+        values: '0+1x15'
+      - series: 'velero_backup_attempt_total{schedule="daily"}'
+        values: '0+1x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: VeleroBackupPartialFailures
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: VeleroBackupPartialFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              schedule: daily
+            exp_annotations:
+              message: "Velero backup daily has 100% partially failed backups"
+
+  # VeleroBackupPartialFailures: does not fire when ratio is below 50%
+  - interval: 1m
+    input_series:
+      - series: 'velero_backup_partial_failure_total{schedule="daily"}'
+        values: '0+1x45'
+      - series: 'velero_backup_attempt_total{schedule="daily"}'
+        values: '0+4x45'
+    alert_rule_test:
+      - eval_time: 41m
+        alertname: VeleroBackupPartialFailures
+        exp_alerts: []
