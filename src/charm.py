@@ -22,6 +22,7 @@ from charms.velero_libs.v0.velero_backup_config import (
 )
 from lightkube import ApiError, Client
 from lightkube.resources.rbac_authorization_v1 import ClusterRole
+from object_storage.gcs import GcsStorageRequires
 from pydantic import ValidationError
 
 from config import CharmConfig
@@ -39,6 +40,7 @@ from libs.azure_service_principal import AzureServicePrincipalRequirer
 from velero import (
     AzureStorageProvider,
     BackupInfo,
+    GCSStorageProvider,
     RestoreParams,
     S3StorageProvider,
     StorageProviderError,
@@ -77,6 +79,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         self.azure_service_principal = AzureServicePrincipalRequirer(
             self, AZURE_SERVICE_PRINCIPAL_RELATION_NAME
         )
+        self.gcs_storage = GcsStorageRequires(self, StorageRelation.GCS.value)
 
         self._scraping = MetricsEndpointProvider(
             self,
@@ -379,6 +382,11 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                     self.azure_storage.get_azure_storage_connection_info(),
                     service_principal or None,
                 )
+            elif self.storage_relation == StorageRelation.GCS:
+                provider = GCSStorageProvider(
+                    self.config.velero_gcp_plugin_image,
+                    self.gcs_storage.get_storage_connection_info(),
+                )
             else:  # pragma: no cover
                 raise ValueError("Unsupported storage provider or no provider configured.")
 
@@ -428,6 +436,10 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         elif self.storage_relation == StorageRelation.AZURE:
             self.velero.update_plugin_image(
                 self.lightkube_client, self.config.velero_azure_plugin_image
+            )
+        elif self.storage_relation == StorageRelation.GCS:
+            self.velero.update_plugin_image(
+                self.lightkube_client, self.config.velero_gcp_plugin_image
             )
 
         if not self.config.use_node_agent:
