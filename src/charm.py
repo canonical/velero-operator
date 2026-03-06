@@ -8,7 +8,7 @@ import logging
 import shlex
 import time
 from functools import cached_property
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union, cast
 
 import ops
 from charms.data_platform_libs.v0.azure_storage import AzureStorageRequires
@@ -385,7 +385,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             elif self.storage_relation == StorageRelation.GCS:
                 provider = GCSStorageProvider(
                     self.config.velero_gcp_plugin_image,
-                    self.gcs_storage.get_storage_connection_info(),
+                    # Use cast for now, we should migrate s3 and azure storage to the new lib later
+                    cast(Dict[str, str], self.gcs_storage.get_storage_connection_info()),
                 )
             else:  # pragma: no cover
                 raise ValueError("Unsupported storage provider or no provider configured.")

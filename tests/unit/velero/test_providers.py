@@ -2,6 +2,7 @@
 # See LICENSE file for licensing details.
 
 import base64
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,6 +10,8 @@ import pytest
 from velero import (
     AzureStorageConfig,
     AzureStorageProvider,
+    GCSStorageConfig,
+    GCSStorageProvider,
     S3StorageConfig,
     S3StorageProvider,
     StorageProviderError,
@@ -109,6 +112,28 @@ azure_invalid_data_3 = {
         "storage-account": "account",
         "resource-group": "group",
     },
+}
+
+# Valid GCS input data
+gcs_data_1 = {
+    "bucket": "test-gcs-bucket",
+    "secret-key": {"type": "service_account", "project_id": "my-project"},
+}
+
+gcs_data_2 = {
+    "bucket": "test-gcs-bucket",
+    "secret-key": {"type": "service_account"},
+    "storage-class": "NEARLINE",
+    "path": "backups/velero",
+}
+
+# Invalid GCS input data
+gcs_invalid_data_1 = {
+    "storage-class": "STANDARD",
+}
+
+gcs_invalid_data_2 = {
+    "bucket": "test-gcs-bucket",
 }
 
 
@@ -300,3 +325,43 @@ def test_azure_storage_provider_get_node_resource_group(mock_lightkube_client):
         StorageProviderError, match="Failed to get the ResourceGroup of the Azure Kubernetes nodes"
     ):
         provider._get_node_resource_group()
+
+
+@pytest.mark.parametrize(
+    "gcs_data,expected_path",
+    [
+        (gcs_data_1, None),
+        (gcs_data_2, "backups/velero"),
+    ],
+)
+def test_gcs_storage_provider_success(gcs_data, expected_path):
+    """Test GCS storage provider initialisation with valid data."""
+    provider = GCSStorageProvider("gcp-plugin-image", gcs_data)
+
+    assert provider.plugin == "gcp"
+    assert provider.bucket == "test-gcs-bucket"
+    assert provider.plugin_image == "gcp-plugin-image"
+    assert provider.path == expected_path
+
+    encoded_secret = base64.b64encode(json.dumps(gcs_data["secret-key"]).encode()).decode()
+    assert provider.secret_data == encoded_secret
+
+    assert provider.backup_location_config == {}
+    assert provider.volume_snapshot_location_config == {}
+
+
+@pytest.mark.parametrize(
+    "gcs_data,error_fields",
+    [
+        (gcs_invalid_data_1, ["'bucket'", "'secret-key'"]),
+        (gcs_invalid_data_2, ["'secret-key'"]),
+    ],
+)
+def test_gcs_storage_provider_invalid_data(gcs_data, error_fields):
+    """Test GCS storage provider initialisation with invalid data."""
+    with pytest.raises(StorageProviderError) as exc_info:
+        GCSStorageProvider("gcp-plugin-image", gcs_data)
+
+    assert f"{GCSStorageConfig.__name__} errors:" in str(exc_info.value)
+    for field in error_fields:
+        assert field in str(exc_info.value)

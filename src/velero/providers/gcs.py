@@ -3,7 +3,8 @@
 
 """Velero GCS Storage Provider class definitions."""
 
-from typing import Dict, Optional
+import json
+from typing import Any, Dict, Optional
 
 from pydantic import Field
 
@@ -14,7 +15,7 @@ class GCSStorageConfig(StorageConfig):
     """Pydantic model for GCS storage config."""
 
     bucket: str = Field(alias="bucket")
-    secret_key: str = Field(alias="secret-key")
+    secret_key: Dict[str, Any] = Field(alias="secret-key")
     storage_class: Optional[str] = Field(None, alias="storage-class")
     path: Optional[str] = Field(None, alias="path")
 
@@ -44,7 +45,7 @@ class GCSStorageProvider(VeleroStorageProvider):
     @property
     def secret_data(self) -> str:
         """Return the base64 encoded GCP service account JSON."""
-        return self._encode_secret(self._config.secret_key)
+        return self._encode_secret(json.dumps(self._config.secret_key))
 
     @property
     def backup_location_config(self) -> Dict[str, str]:
