@@ -6,7 +6,7 @@
 import json
 from typing import Any, Dict, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from .classes import StorageConfig, VeleroStorageProvider
 
@@ -18,6 +18,22 @@ class GCSStorageConfig(StorageConfig):
     secret_key: Dict[str, Any] = Field(alias="secret-key")
     storage_class: Optional[str] = Field(None, alias="storage-class")
     path: Optional[str] = Field(None, alias="path")
+
+    @field_validator("bucket")
+    @classmethod
+    def validate_bucket(cls, v: str) -> str:
+        """Validate bucket is not an empty string."""
+        if not v:
+            raise ValueError("'bucket' cannot be an empty string.")
+        return v
+
+    @field_validator("secret_key")
+    @classmethod
+    def validate_secret_key(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate secret_key is not an empty dict."""
+        if not v:
+            raise ValueError("'secret_key' cannot be an empty dict.")
+        return v
 
 
 class GCSStorageProvider(VeleroStorageProvider):

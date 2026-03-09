@@ -118,6 +118,8 @@ azure_invalid_data_3 = {
 gcs_data_1 = {
     "bucket": "test-gcs-bucket",
     "secret-key": {"type": "service_account", "project_id": "my-project"},
+    "storage-class": "NEARLINE",
+    "path": "backups/velero",
 }
 
 gcs_data_2 = {
@@ -129,11 +131,17 @@ gcs_data_2 = {
 
 # Invalid GCS input data
 gcs_invalid_data_1 = {
-    "storage-class": "STANDARD",
+    "bucket": "",
+    "secret-key": {"type": "service_account", "project_id": "my-project"},
+    "storage-class": "NEARLINE",
+    "path": "backups/velero",
 }
 
 gcs_invalid_data_2 = {
     "bucket": "test-gcs-bucket",
+    "secret-key": {},
+    "storage-class": "NEARLINE",
+    "path": "backups/velero",
 }
 
 
@@ -330,7 +338,7 @@ def test_azure_storage_provider_get_node_resource_group(mock_lightkube_client):
 @pytest.mark.parametrize(
     "gcs_data,expected_path",
     [
-        (gcs_data_1, None),
+        (gcs_data_1, "backups/velero"),
         (gcs_data_2, "backups/velero"),
     ],
 )
@@ -353,7 +361,7 @@ def test_gcs_storage_provider_success(gcs_data, expected_path):
 @pytest.mark.parametrize(
     "gcs_data,error_fields",
     [
-        (gcs_invalid_data_1, ["'bucket'", "'secret-key'"]),
+        (gcs_invalid_data_1, ["'bucket'"]),
         (gcs_invalid_data_2, ["'secret-key'"]),
     ],
 )
