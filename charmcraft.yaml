@@ -53,7 +53,7 @@ config:
     velero-gcp-plugin-image:
       description: |
         The Velero GCP plugin container image to deploy
-      default: "velero/velero-plugin-for-gcp:v1.13.0"
+      default: "velero/velero-plugin-for-gcp:v1.14.0"
       type: string
     default-volumes-to-fs-backup:
       description: |
@@ -181,6 +181,7 @@ parts:
       - libffi-dev
       - libssl-dev
       - pkg-config
+      - git
     override-build: |
       rustup default stable
       craftctl default

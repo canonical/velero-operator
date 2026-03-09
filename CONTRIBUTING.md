@@ -18,16 +18,16 @@ to know.
 
 Before you can begin, you will need to:
 
-* Read and agree to abide by our
+- Read and agree to abide by our
   [Code of Conduct](https://ubuntu.com/community/code-of-conduct).
 
-* Sign the Canonical
+- Sign the Canonical
   [contributor license agreement](https://ubuntu.com/legal/contributors). This
   grants us your permission to use your contributions in the project.
 
-* Create (or have) a GitHub account.
+- Create (or have) a GitHub account.
 
-* If you're working in a local environment, it's important to create a signing
+- If you're working in a local environment, it's important to create a signing
   key, typically using GPG or SSH, and register it in your GitHub account to
   verify the origin of your code changes. For instructions on setting this up,
   please refer to
@@ -53,9 +53,9 @@ Before you can begin, you will need to:
 
 ### Hard Requirements
 
-* **Testing and Code Coverage**: Changes must be accompanied by appropriate unit tests and meet the project's code coverage requirements. Functional and integration tests should be added when applicable to ensure the stability of the codebase.
+- **Testing and Code Coverage**: Changes must be accompanied by appropriate unit tests and meet the project's code coverage requirements. Functional and integration tests should be added when applicable to ensure the stability of the codebase.
 
-* **Sign Your Commits**: Be sure to [sign your commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits), refer to the [Prerequisites](#prerequisites) section.
+- **Sign Your Commits**: Be sure to [sign your commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits), refer to the [Prerequisites](#prerequisites) section.
 
 ## Code of Conduct
 
@@ -79,36 +79,38 @@ Integration tests require a working Kubernetes cluster (via `Canonical K8s`) and
 
 **Important things to know before running the integration tests:**
 
-* These tests require AWS-style S3 credentials and Azure Storage credentials.
-* If you're running in a CI environment (`CI=true`), a local RadosGW (via `microceph`) and a local Azurite instance will be created automatically.
-* When testing locally, you **must** provide your own credentials or reuse those from `microceph` and `Azurite`.
+- These tests require AWS-style S3 credentials, Azure Storage credentials, and GCS credentials.
+- If you're running in a CI environment (`CI=true`), a local RadosGW (via `microceph`), a local Azurite instance, and a local `fake-gcs-server` instance will be created automatically.
+- When testing locally, you **must** provide your own credentials or reuse those from `microceph`, `Azurite`, and `fake-gcs-server`.
 
-#### 1. Setup RadosGW and Azurite
+#### 1. Setup RadosGW, Azurite, and fake-gcs-server
 
-The integration tests can install microceph with RadosGW and Azurite, and then run the tests. To do so you'll need to run the integration tests with `CI=true`.
+The integration tests can install microceph with RadosGW, Azurite, and fake-gcs-server, and then run the tests. To do so you'll need to run the integration tests with `CI=true`.
 
 When the `CI=true` environment variable is set:
 
-* MicroCeph will be installed and bootstrapped
-* A local RadosGW instance is created
-* S3 credentials are generated for a user `test`
-* A `testbucket` bucket is created
-* A local Azurite instance is started on port `10000`
-* The integration tests will use this local setup
+- MicroCeph will be installed and bootstrapped
+- A local RadosGW instance is created
+- S3 credentials are generated for a user `test`
+- A `testbucket` bucket is created
+- A local Azurite instance is started on port `10000`
+- A local `fake-gcs-server` instance is started on port `8000`
 
 > **Note**: You can create your own S3 bucket and credentials if you prefer. Just ensure the `AWS_*` environment variables are set correctly.
 >
 > **Note**: RadosGW will be exposed under `$(hostname):7480`
 >
 > **Note**: Azurite will be exposed under `$(hostname):10000`
+>
+> **Note**: fake-gcs-server will be exposed under `$(hostname):8000`
 
 ```bash
 CI=true tox -vve integration -- --model velero-testing
 ```
 
-#### 2. Reuse Local RadosGW and Azurite
+#### 2. Reuse Local RadosGW, Azurite, and fake-gcs-server
 
-You can also run the integration tests and point them to existing local instances of RadosGW and Azurite. For example, set the following environment variables:
+You can also run the integration tests and point them to existing local instances of RadosGW, Azurite, and fake-gcs-server. For example, set the following environment variables:
 
 ```bash
 export AWS_ENDPOINT="http://$(hostname):7480"
@@ -125,11 +127,17 @@ export AZURE_CONTAINER=testcontainer
 export AZURE_RESOURCE_GROUP=velero-testing
 export AZURE_SECRET_KEY=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
 export AZURE_ENDPOINT="http://$(hostname):10000/devstoreaccount1"
+
+export GCS_BUCKET=velero-test-bucket
+export GCS_ENDPOINT="http://$(hostname):8000"
+export GCS_SERVICE_ACCOUNT_KEY_JSON='{"type":"service_account",...}'
 ```
 
 > **Note**: `AWS_S3_URI_STYLE` is optional, unless you are using local S3 (must be set to `path`)
 >
 > **Note**: `AWS_ENDPOINT` and `AZURE_STORAGE_ENDPOINT` are optional, unless you are using local S3/Azurite
+>
+> **Note**: `GCS_ENDPOINT` is optional when testing against real GCS. `GCS_SERVICE_ACCOUNT_KEY_JSON` must be the full JSON content of a GCP service account key file.
 
 Then you can run the integration tests with:
 
