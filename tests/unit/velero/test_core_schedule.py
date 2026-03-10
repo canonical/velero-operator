@@ -56,9 +56,11 @@ def test_create_schedule_success(mock_lightkube_client, velero):
     mock_lightkube_client.create.assert_called_once()
     created_schedule = mock_lightkube_client.create.call_args[0][0]
     assert isinstance(created_schedule, Schedule)
+    assert created_schedule.metadata is not None
     assert created_schedule.metadata.generateName == "test-app-backup-"
     assert created_schedule.metadata.namespace == NAMESPACE
     assert created_schedule.metadata.labels == labels
+    assert created_schedule.spec is not None
     assert created_schedule.spec.schedule == "0 2 * * *"
 
 

@@ -7,7 +7,6 @@ import httpx
 import pytest
 from lightkube.core.exceptions import ApiError
 from ops import testing
-from scenario import Relation
 
 from charm import VeleroOperatorCharm
 from constants import StorageRelation
@@ -299,11 +298,11 @@ def test_on_remove(mock_velero, mock_lightkube_client):
 @pytest.mark.parametrize(
     "relations",
     [
-        [Relation(endpoint=StorageRelation.S3.value)],
-        [Relation(endpoint=StorageRelation.AZURE.value)],
+        [testing.Relation(endpoint=StorageRelation.S3.value)],
+        [testing.Relation(endpoint=StorageRelation.AZURE.value)],
         [
-            Relation(endpoint=StorageRelation.S3.value),
-            Relation(endpoint=StorageRelation.AZURE.value),
+            testing.Relation(endpoint=StorageRelation.S3.value),
+            testing.Relation(endpoint=StorageRelation.AZURE.value),
         ],
     ],
 )
@@ -355,7 +354,7 @@ def test_storage_relation_changed_success(
     # Arrange
     mock_velero.is_storage_configured.return_value = False
     ctx = testing.Context(VeleroOperatorCharm)
-    relation = Relation(endpoint=storage_relation.value, remote_app_data=relation_data)
+    relation = testing.Relation(endpoint=storage_relation.value, remote_app_data=relation_data)
 
     # Act
     state_out = ctx.run(
@@ -394,7 +393,7 @@ def test_storage_relation_changed_invalid_config(
     # Arrange
     mock_velero.is_storage_configured.return_value = False
     ctx = testing.Context(VeleroOperatorCharm)
-    relation = Relation(endpoint=storage_relation.value, remote_app_data=relation_data)
+    relation = testing.Relation(endpoint=storage_relation.value, remote_app_data=relation_data)
 
     # Act
     state_out = ctx.run(
@@ -412,8 +411,8 @@ def test_storage_relation_changed_many_relations(mock_velero, mock_lightkube_cli
     # Arrange
     mock_velero.is_storage_configured.return_value = False
     ctx = testing.Context(VeleroOperatorCharm)
-    s3_relation = Relation(endpoint=StorageRelation.S3.value)
-    azure_relation = Relation(endpoint=StorageRelation.AZURE.value)
+    s3_relation = testing.Relation(endpoint=StorageRelation.S3.value)
+    azure_relation = testing.Relation(endpoint=StorageRelation.AZURE.value)
 
     # Act
     state_out = ctx.run(
@@ -438,7 +437,7 @@ def test_storage_relation_changed_configure(
     # Arrange
     mock_velero.is_storage_configured.return_value = provider_configured
     ctx = testing.Context(VeleroOperatorCharm)
-    relation = Relation(
+    relation = testing.Relation(
         endpoint=StorageRelation.S3.value,
         remote_app_data={
             "region": "us-east-1",
@@ -472,7 +471,7 @@ def test_storage_relation_changed_install_error(mock_velero, mock_lightkube_clie
         "Failed to add Velero backup location"
     )
     ctx = testing.Context(VeleroOperatorCharm)
-    relation = Relation(
+    relation = testing.Relation(
         endpoint=StorageRelation.S3.value,
         remote_app_data={
             "bucket": "test-bucket",
@@ -498,7 +497,7 @@ def test_storage_relation_broken_success(mock_velero, mock_lightkube_client):
     """Test that the relation_broken event removes the storage provider."""
     # Arrange
     ctx = testing.Context(VeleroOperatorCharm)
-    relation = Relation(endpoint=StorageRelation.S3.value)
+    relation = testing.Relation(endpoint=StorageRelation.S3.value)
 
     # Act
     state_out = ctx.run(
@@ -515,7 +514,7 @@ def test_storage_relation_broken_error(mock_velero, mock_lightkube_client):
     """Test that the relation_departed event raises an error if remove fails."""
     # Arrange
     ctx = testing.Context(VeleroOperatorCharm)
-    relation = Relation(endpoint=StorageRelation.S3.value)
+    relation = testing.Relation(endpoint=StorageRelation.S3.value)
     mock_velero.remove_storage_locations.side_effect = VeleroError(
         "Failed to remove storage locations"
     )
@@ -633,7 +632,7 @@ def test_on_config_changed_success(
     """Test that the config_changed event is handled correctly."""
     # Arrange
     ctx = testing.Context(VeleroOperatorCharm)
-    relations = [Relation(endpoint=relation.value)] if relation else []
+    relations = [testing.Relation(endpoint=relation.value)] if relation else []
 
     # Act
     ctx.run(
@@ -745,7 +744,7 @@ def test_run_create_backup_action_success(
         mock_storage_rel.return_value = StorageRelation.S3
         mock_velero.is_storage_configured.return_value = True
         ctx = testing.Context(VeleroOperatorCharm)
-        relation = Relation(
+        relation = testing.Relation(
             endpoint=VELERO_BACKUP_ENDPOINT,
             remote_app_name="test-app",
             remote_app_data={
@@ -774,7 +773,7 @@ def test_run_create_backup_action_success(
         (
             "test-app:test-endpoint",
             "test-model",
-            Relation(
+            testing.Relation(
                 endpoint=VELERO_BACKUP_ENDPOINT,
                 remote_app_name="test-app",
                 remote_app_data={
@@ -810,7 +809,7 @@ def test_run_create_backup_action_success(
         (
             "test-app:test-endpoint",
             "test-model",
-            Relation(
+            testing.Relation(
                 endpoint=VELERO_BACKUP_ENDPOINT,
                 remote_app_name="test-app",
                 remote_app_data={
@@ -827,7 +826,7 @@ def test_run_create_backup_action_success(
         (
             "test-app:test-endpoint",
             "test-model",
-            Relation(
+            testing.Relation(
                 endpoint=VELERO_BACKUP_ENDPOINT,
                 remote_app_name="test-app",
                 remote_app_data={
@@ -845,7 +844,7 @@ def test_run_create_backup_action_success(
         (
             "test-app:test-endpoint",
             "test-model",
-            Relation(
+            testing.Relation(
                 endpoint=VELERO_BACKUP_ENDPOINT,
                 remote_app_name="test-app",
                 remote_app_data={
@@ -920,6 +919,8 @@ def test_run_restore_action_success(
 @pytest.mark.parametrize(
     "backup_uid,storage_configured,restore_side_effect",
     [
+        # Invalid parameters (empty backup UID)
+        ("", True, None),
         # Storage not configured
         ("test-backup-uid", False, None),
         # Restore fails (VeleroError)
@@ -1101,7 +1102,7 @@ def test_reconcile_schedules_creates_schedule(mock_velero, mock_lightkube_client
         mock_velero.is_storage_configured.return_value = True
         mock_velero.is_installed.return_value = True
         ctx = testing.Context(VeleroOperatorCharm)
-        relation = Relation(
+        relation = testing.Relation(
             endpoint=VELERO_BACKUP_ENDPOINT,
             remote_app_name="test-app",
             remote_app_data={
@@ -1141,7 +1142,7 @@ def test_reconcile_schedules_deletes_schedule_when_no_schedule_in_spec(
         mock_velero.is_storage_configured.return_value = True
         mock_velero.is_installed.return_value = True
         ctx = testing.Context(VeleroOperatorCharm)
-        relation = Relation(
+        relation = testing.Relation(
             endpoint=VELERO_BACKUP_ENDPOINT,
             remote_app_name="test-app",
             remote_app_data={
@@ -1178,7 +1179,7 @@ def test_reconcile_schedules_handles_create_error(mock_velero, mock_lightkube_cl
         mock_velero.is_installed.return_value = True
         mock_velero.create_or_update_schedule.side_effect = VeleroError("Schedule creation failed")
         ctx = testing.Context(VeleroOperatorCharm)
-        relation = Relation(
+        relation = testing.Relation(
             endpoint=VELERO_BACKUP_ENDPOINT,
             remote_app_name="test-app",
             remote_app_data={
@@ -1213,7 +1214,7 @@ def test_reconcile_schedules_handles_delete_error(mock_velero, mock_lightkube_cl
         mock_velero.is_installed.return_value = True
         mock_velero.delete_schedule_by_labels.side_effect = VeleroError("Schedule deletion failed")
         ctx = testing.Context(VeleroOperatorCharm)
-        relation = Relation(
+        relation = testing.Relation(
             endpoint=VELERO_BACKUP_ENDPOINT,
             remote_app_name="test-app",
             remote_app_data={
@@ -1247,7 +1248,7 @@ def test_reconcile_schedules_skips_invalid_spec(mock_velero, mock_lightkube_clie
         mock_velero.is_storage_configured.return_value = True
         mock_velero.is_installed.return_value = True
         ctx = testing.Context(VeleroOperatorCharm)
-        relation = Relation(
+        relation = testing.Relation(
             endpoint=VELERO_BACKUP_ENDPOINT,
             remote_app_name="test-app",
             remote_app_data={
@@ -1283,7 +1284,7 @@ def test_reconcile_schedules_skips_missing_app_or_endpoint(mock_velero, mock_lig
         mock_velero.is_storage_configured.return_value = True
         mock_velero.is_installed.return_value = True
         ctx = testing.Context(VeleroOperatorCharm)
-        relation = Relation(
+        relation = testing.Relation(
             endpoint=VELERO_BACKUP_ENDPOINT,
             remote_app_name="test-app",
             remote_app_data={
@@ -1350,7 +1351,7 @@ def test_relation_broken_cleans_up_schedule(mock_velero, mock_lightkube_client):
         mock_velero.is_storage_configured.return_value = True
         mock_velero.is_installed.return_value = True
         ctx = testing.Context(VeleroOperatorCharm)
-        relation = Relation(
+        relation = testing.Relation(
             endpoint=VELERO_BACKUP_ENDPOINT,
             remote_app_name="test-app",
             remote_app_data={
@@ -1390,7 +1391,7 @@ def test_relation_broken_missing_app_name_or_endpoint(mock_velero, mock_lightkub
         mock_velero.is_storage_configured.return_value = True
         mock_velero.is_installed.return_value = True
         ctx = testing.Context(VeleroOperatorCharm)
-        relation = Relation(
+        relation = testing.Relation(
             endpoint=VELERO_BACKUP_ENDPOINT,
             remote_app_name="test-app",
             remote_app_data={
@@ -1424,7 +1425,7 @@ def test_relation_broken_delete_fails(mock_velero, mock_lightkube_client):
         mock_velero.is_installed.return_value = True
         mock_velero.delete_schedule_by_labels.side_effect = VeleroError("Delete failed")
         ctx = testing.Context(VeleroOperatorCharm)
-        relation = Relation(
+        relation = testing.Relation(
             endpoint=VELERO_BACKUP_ENDPOINT,
             remote_app_name="test-app",
             remote_app_data={
