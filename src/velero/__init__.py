@@ -3,17 +3,7 @@
 
 """Velero module."""
 
-from .core import (
-    BackupInfo,
-    ScheduleInfo,
-    Velero,
-    VeleroBackupStatusError,
-    VeleroCLIError,
-    VeleroError,
-    VeleroRestoreStatusError,
-    VeleroScheduleStatusError,
-    VeleroStatusError,
-)
+from .core import Velero
 from .crds import ExistingResourcePolicy
 from .providers import (
     AzureStorageConfig,
@@ -22,21 +12,33 @@ from .providers import (
     S3StorageProvider,
     StorageProviderError,
 )
+from .utils import (
+    BackupInfo,
+    RestoreParams,
+    ScheduleInfo,
+    VeleroBackupStatusError,
+    VeleroCLIError,
+    VeleroError,
+    VeleroRestoreStatusError,
+    VeleroScheduleStatusError,
+    VeleroStatusError,
+)
 
 __all__ = [
     "Velero",
     "VeleroError",
+    "VeleroBackupStatusError",
+    "VeleroRestoreStatusError",
+    "VeleroScheduleStatusError",
+    "VeleroCLIError",
+    "VeleroStatusError",
     "S3StorageProvider",
     "AzureStorageProvider",
     "StorageProviderError",
     "AzureStorageConfig",
     "S3StorageConfig",
-    "VeleroCLIError",
-    "VeleroStatusError",
     "ExistingResourcePolicy",
     "BackupInfo",
     "ScheduleInfo",
-    "VeleroBackupStatusError",
-    "VeleroRestoreStatusError",
-    "VeleroScheduleStatusError",
+    "RestoreParams",
 ]
