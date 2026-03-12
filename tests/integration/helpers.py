@@ -3,7 +3,7 @@
 
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Type
+from typing import Dict, Optional, Type
 
 import yaml
 from juju.action import Action
@@ -13,7 +13,6 @@ from juju.unit import Unit
 from lightkube import ApiError, Client
 from lightkube.core.resource import GlobalResource, NamespacedResource
 from lightkube.generic_resource import create_namespaced_resource
-from lightkube.models.core_v1 import EnvVar
 from lightkube.resources.apps_v1 import Deployment
 from lightkube.resources.core_v1 import Pod
 from pytest_operator.plugin import OpsTest
@@ -40,6 +39,9 @@ APP_RELATION_NAME = "velero-backups"
 TEST_APP_FIRST_RELATION_NAME = "first-velero-backup-config"
 TEST_APP_SECOND_RELATION_NAME = "second-velero-backup-config"
 READY_MESSAGE = "Unit is Ready"
+BACKUP_STORAGE_LOCALTION_UNAVAILABLE_MESSAGE = (
+    "Velero Storage location is not ready: BackupStorageLocation is unavailable"
+)
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_1 = "Velero Deployment is not ready: ImagePullBackOff"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_2 = "Velero Deployment is not ready: ErrImagePull"
 MULTIPLE_RELATIONS_MESSAGE = (
@@ -590,25 +592,3 @@ async def get_application_data(
     relation_data = await get_relation_data(ops_test, application_name, endpoint, related_endpoint)
     application_data = relation_data[0]["application-data"]
     return application_data
-
-
-def set_velero_gcs_emulator_env(client: Client, namespace: str, endpoint: str) -> None:
-    """Patch the Velero deployment to redirect GCS calls to a local emulator.
-
-    Sets the STORAGE_EMULATOR_HOST environment variable on the velero container,
-    which causes the GCP storage client to route all requests to the given host
-    instead of storage.googleapis.com and to skip authentication.
-
-    Args:
-        client: The lightkube client to use for the patch.
-        namespace: The namespace where the Velero deployment runs.
-        endpoint: The emulator endpoint, e.g. "http://<host>:4443".
-    """
-    deployment = client.get(Deployment, name="velero", namespace=namespace)
-    containers = deployment.spec.template.spec.containers  # type: ignore[union-attr]
-    for container in containers:
-        if container.name == "velero":
-            env: List[EnvVar] = list(container.env or [])
-            env.append(EnvVar(name="STORAGE_EMULATOR_HOST", value=endpoint))
-            container.env = env
-    client.patch(Deployment, name="velero", namespace=namespace, obj=deployment)

@@ -7,7 +7,6 @@ import logging
 import os
 import socket
 import subprocess
-import tarfile
 import uuid
 from pathlib import Path
 
@@ -15,7 +14,6 @@ import boto3
 import botocore.exceptions
 import pytest
 import pytest_asyncio
-import requests
 from azure.core.exceptions import ResourceExistsError, ServiceRequestError
 from azure.storage.blob import BlobServiceClient
 from helpers import k8s_assert_resource_exists
@@ -32,13 +30,6 @@ AZURITE_BLOB_PORT = 10000
 AZURITE_ACCOUNT = "devstoreaccount1"
 AZURITE_KEY = (
     "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
-)
-FAKE_GCS_PORT = 8000
-FAKE_GCS_BUCKET = "velero-test-bucket"
-FAKE_GCS_SERVER_VERSION = "1.54.0"
-FAKE_GCS_GITHUB_RELEASE_URL = (
-    "https://github.com/fsouza/fake-gcs-server/releases/download"
-    "/v{version}/fake-gcs-server_{version}_Linux_amd64.tar.gz"
 )
 K8S_TEST_NAMESPACE = "velero-integration-tests"
 K8S_TEST_RESOURCES_YAML_PATH = "./tests/integration/resources/test_resources.yaml.j2"
@@ -65,9 +56,8 @@ class AzureBlobConnectionInfo:
 
 @dataclasses.dataclass(frozen=True)
 class GcsConnectionInfo:
-    fake: bool
+    ci: bool
     bucket: str
-    endpoint: str  # e.g. "http://<host>:8000"
     service_account_key_json: str  # JSON string of the GCP service account key
 
 
@@ -195,77 +185,19 @@ def setup_azurite() -> AzureBlobConnectionInfo:
     )
 
 
-@retry(
-    stop=stop_after_attempt(5),
-    wait=wait_fixed(1),
-    retry=retry_if_exception_type(Exception),
-    reraise=True,
-)
-def create_fake_gcs_bucket(endpoint: str, bucket_name: str) -> None:
-    """Create a bucket in fake-gcs-server via its JSON API.
-
-    Args:
-        endpoint: Base URL of the fake-gcs-server, e.g. "http://localhost:8000".
-        bucket_name: Name of the bucket to create.
-    """
-    logger.info("Attempting to create fake-gcs-server bucket %r", bucket_name)
-    url = f"{endpoint}/storage/v1/b"
-    response = requests.post(url, json={"name": bucket_name})
-    response.raise_for_status()
-
-
-def setup_fake_gcs(tmp_path: Path) -> GcsConnectionInfo:
-    """Download, start fake-gcs-server and return connection info.
-
-    The binary is downloaded from GitHub Releases into tmp_path
-    and started directly via subprocess — no Docker daemon required, and the
-    binary is never copied to a system path.
-
-    Args:
-        tmp_path: A temporary directory provided by pytest's tmp_path fixture.
-
-    Returns:
-        GcsConnectionInfo with the test bucket name, emulator endpoint, and a
-        dummy service account JSON key accepted by the emulator.
-    """
-    url = FAKE_GCS_GITHUB_RELEASE_URL.format(version=FAKE_GCS_SERVER_VERSION)
-    archive_path = tmp_path / f"fake-gcs-server_{FAKE_GCS_SERVER_VERSION}.tar.gz"
-    logger.info("Downloading fake-gcs-server from %s", url)
-    with requests.get(url, stream=True) as resp:
-        resp.raise_for_status()
-        with archive_path.open("wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-    with tarfile.open(archive_path) as tar:
-        tar.extractall(tmp_path)
-    binary = tmp_path / "fake-gcs-server"
-    binary.chmod(0o755)
-
-    endpoint = f"http://{get_host_ip()}:{FAKE_GCS_PORT}"
-
-    logger.info("Starting fake-gcs-server on port %d", FAKE_GCS_PORT)
-    subprocess.Popen(
-        [
-            str(binary),  # local path, e.g. /tmp/tmpXXXXXX/fake-gcs-server
-            "-scheme",
-            "http",
-            "-port",
-            str(FAKE_GCS_PORT),
-            "-backend",
-            "filesystem",
-            "-external-url",
-            endpoint,
-        ]
-    )
-
-    create_fake_gcs_bucket(endpoint, FAKE_GCS_BUCKET)
-
-    dummy_sa_key = json.dumps(
-        {
-            "type": "service_account",
-            "project_id": "my-project-id",
-            "private_key_id": "abcdef1234567890abcdef1234567890abcdef12",
-            "private_key": """
+@pytest.fixture(scope="session")
+def gcs_connection_info(tmp_path_factory: pytest.TempPathFactory) -> GcsConnectionInfo:
+    """Return GCS connection info based on environment."""
+    if is_ci():
+        return GcsConnectionInfo(
+            ci=True,
+            bucket="fake-bucket",
+            service_account_key_json=json.dumps(
+                {
+                    "type": "service_account",
+                    "project_id": "my-project-id",
+                    "private_key_id": "abcdef1234567890abcdef1234567890abcdef12",
+                    "private_key": """
 -----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC4lsLkyO2Tt59n
 67R4GEP8FUO9l+9X2RHcAmvRXTfkzLGw49guI3A7UzGYgbiVMGtYREcIwabXNgjJ
@@ -294,29 +226,17 @@ XRXLTYR0tRX2BcNLrugEzTcwRYupPGsTYR3KHlKLs5Rpl3oCNXsNwDJw817BomZQ
 PkAx5NKbWtUjXqmNOfWeM+lv9EBUJMfdRURj2vofGlOq4sO6IaRMvVSli7zCeD0w
 V86RTfnSHLljzUryAcdURX8=
 -----END PRIVATE KEY-----
-""",
-            "client_email": "gcs-integrator@my-project-id.iam.gserviceaccount.com",
-            "client_id": "123456789012345678901",
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/gcs-integrator%40my-project-id.iam.gserviceaccount.com",
-            "universe_domain": "googleapis.com",
-        }
-    )
-    return GcsConnectionInfo(
-        fake=True,
-        bucket=FAKE_GCS_BUCKET,
-        endpoint=endpoint,
-        service_account_key_json=dummy_sa_key,
-    )
-
-
-@pytest.fixture(scope="session")
-def gcs_connection_info(tmp_path_factory: pytest.TempPathFactory) -> GcsConnectionInfo:
-    """Return GCS connection info based on environment."""
-    if is_ci():
-        return setup_fake_gcs(tmp_path_factory.mktemp("fake-gcs-server"))
+        """,
+                    "client_email": "gcs-integrator@my-project-id.iam.gserviceaccount.com",
+                    "client_id": "123456789012345678901",
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/gcs-integrator%40my-project-id.iam.gserviceaccount.com",
+                    "universe_domain": "googleapis.com",
+                }
+            ),
+        )
 
     required_env_vars = ["GCS_SERVICE_ACCOUNT_KEY_JSON", "GCS_BUCKET"]
     missing_or_empty = [var for var in required_env_vars if not os.environ.get(var)]
@@ -326,9 +246,8 @@ def gcs_connection_info(tmp_path_factory: pytest.TempPathFactory) -> GcsConnecti
         )
 
     return GcsConnectionInfo(
-        fake=False,
+        ci=True,
         bucket=os.environ["GCS_BUCKET"],
-        endpoint=os.environ.get("GCS_ENDPOINT", ""),  # no used in real GCS
         service_account_key_json=os.environ["GCS_SERVICE_ACCOUNT_KEY_JSON"],
     )
 

@@ -118,7 +118,6 @@ pytest = "^8.3.3"
 azure-storage-blob = "^12.26.0"
 pytest-operator = ">0.30"
 charmed-kubeflow-chisme = "^0.4.6"
-requests = "^2.32.5"
 
 
 [build-system]

@@ -4,12 +4,14 @@
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 
 import pytest
 from helpers import (
     APP_NAME,
+    BACKUP_STORAGE_LOCALTION_UNAVAILABLE_MESSAGE,
     DEPLOYMENT_IMAGE_ERROR_MESSAGE_1,
     DEPLOYMENT_IMAGE_ERROR_MESSAGE_2,
     GCS_INTEGRATOR,
@@ -24,7 +26,6 @@ from helpers import (
     k8s_delete_and_wait,
     k8s_get_velero_backup,
     run_charm_action,
-    set_velero_gcs_emulator_env,
     verify_pvc_content,
 )
 from lightkube.resources.core_v1 import Namespace
@@ -49,16 +50,12 @@ async def test_build_and_deploy(
             velero_operator_charm_path,
             application_name=APP_NAME,
             trust=True,
-            config={"use-node-agent": True, "default-volumes-to-fs-backup": True},
+            config={"use-node-agent": False, "default-volumes-to-fs-backup": False},
         ),
         model.deploy(GCS_INTEGRATOR, channel=GCS_INTEGRATOR_CHANNEL),
         model.wait_for_idle(apps=[APP_NAME, GCS_INTEGRATOR], status="blocked", timeout=TIMEOUT),
     )
     assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
-
-    if gcs_connection_info.fake:
-        logger.info("Injecting STORAGE_EMULATOR_HOST into Velero deployment")
-        set_velero_gcs_emulator_env(lightkube_client, model.name, gcs_connection_info.endpoint)
 
 
 @pytest.mark.abort_on_fail
@@ -86,22 +83,35 @@ async def test_configure_gcs_integrator(ops_test: OpsTest, gcs_connection_info):
 
 
 @pytest.mark.abort_on_fail
-async def test_relate_gcs_integrator(ops_test: OpsTest):
+async def test_relate_gcs_integrator(ops_test: OpsTest, gcs_connection_info):
     """Test the relation between the velero-operator charm and the gcs-integrator charm."""
     logger.info("Relating velero-operator to %s", GCS_INTEGRATOR)
     model = get_model(ops_test)
 
     await model.integrate(APP_NAME, GCS_INTEGRATOR)
-    async with ops_test.fast_forward(fast_interval="60s"):
-        await model.wait_for_idle(
-            apps=[APP_NAME],
-            status="active",
-            timeout=TIMEOUT,
+
+    if gcs_connection_info.ci:
+        async with ops_test.fast_forward(fast_interval="60s"):
+            await model.wait_for_idle(
+                apps=[APP_NAME],
+                status="blocked",
+                timeout=TIMEOUT,
+            )
+        assert_app_status(
+            model.applications[APP_NAME], [BACKUP_STORAGE_LOCALTION_UNAVAILABLE_MESSAGE]
         )
-    assert_app_status(model.applications[APP_NAME], [READY_MESSAGE])
+    else:
+        async with ops_test.fast_forward(fast_interval="60s"):
+            await model.wait_for_idle(
+                apps=[APP_NAME],
+                status="active",
+                timeout=TIMEOUT,
+            )
+        assert_app_status(model.applications[APP_NAME], [READY_MESSAGE])
 
 
 @pytest.mark.abort_on_fail
+@pytest.mark.skipif(os.environ.get("CI") == "true", reason="Cannot test change gcs plugin on CI.")
 async def test_configure_gcs_plugin_image(ops_test: OpsTest):
     """Test the config-changed hook for the velero-gcp-plugin-image config option."""
     logger.info("Testing velero-gcp-plugin-image config option")
@@ -123,6 +133,7 @@ async def test_configure_gcs_plugin_image(ops_test: OpsTest):
 
 
 @pytest.mark.abort_on_fail
+@pytest.mark.skipif(os.environ.get("CI") == "true", reason="Cannot test backup to GCP on CI.")
 async def test_gcs_backup(ops_test: OpsTest, k8s_test_resources, lightkube_client):
     """Test the backup functionality of the velero-operator charm."""
     logger.info("Testing backup functionality")
@@ -150,6 +161,7 @@ async def test_gcs_backup(ops_test: OpsTest, k8s_test_resources, lightkube_clien
 
 
 @pytest.mark.abort_on_fail
+@pytest.mark.skipif(os.environ.get("CI") == "true", reason="Cannot test restore to GCP on CI.")
 async def test_gcs_restore(ops_test: OpsTest, k8s_test_resources, lightkube_client):
     """Test the restore functionality of the velero-operator charm."""
     logger.info("Testing restore functionality")
@@ -187,7 +199,10 @@ async def test_unrelate_gcs_integrator(ops_test: OpsTest):
             status="blocked",
             timeout=TIMEOUT,
         )
-    assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
+    assert_app_status(
+        model.applications[APP_NAME],
+        [MISSING_RELATION_MESSAGE, BACKUP_STORAGE_LOCALTION_UNAVAILABLE_MESSAGE],
+    )
 
 
 @pytest.mark.abort_on_fail
