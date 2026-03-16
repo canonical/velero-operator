@@ -22,7 +22,7 @@ from charms.velero_libs.v0.velero_backup_config import (
 )
 from lightkube import ApiError, Client
 from lightkube.resources.rbac_authorization_v1 import ClusterRole
-from object_storage.gcs import GcsStorageRequires
+from object_storage.gcs import GCSRequirer
 from pydantic import ValidationError
 
 from config import CharmConfig
@@ -79,7 +79,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         self.azure_service_principal = AzureServicePrincipalRequirer(
             self, AZURE_SERVICE_PRINCIPAL_RELATION_NAME
         )
-        self.gcs_storage = GcsStorageRequires(self, StorageRelation.GCS.value)
+        self.gcs_storage = GCSRequirer(self, StorageRelation.GCS.value)
 
         self._scraping = MetricsEndpointProvider(
             self,

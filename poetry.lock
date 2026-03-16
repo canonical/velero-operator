@@ -2333,18 +2333,13 @@ description = "Common charm lib for providers and requirers of object storage re
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "object_storage_charmlib-0.1.0-py3-none-any.whl", hash = "sha256:012ff8c793f8167c8ca57667487e74a70c97f0b22bbc8f921a2e105c6ac8778e"},
+    {file = "object_storage_charmlib-0.1.0.tar.gz", hash = "sha256:c71192cd35ab5d761480f6d9187c8cded1ee4cbb94ec68e287b8a95d2bc2358e"},
+]
 
 [package.dependencies]
 ops = ">=2.0.0"
-
-[package.source]
-type = "git"
-url = "https://github.com/canonical/object-storage-integrator.git"
-reference = "HEAD"
-resolved_reference = "89b2ca0ab9535d526bc182b780c67ceadf8ccedc"
-subdirectory = "lib"
 
 [[package]]
 name = "opentelemetry-api"
@@ -4340,4 +4335,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "4e111b6e19464a8d4b1bfc53114d7b13889c359423b5ac0cacf1ee65003c04bd"
+content-hash = "0938271deadef2304aae88fcaf8a18a4142c09383a076370d4e66f8e5d660ec5"
