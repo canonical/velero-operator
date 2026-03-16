@@ -81,7 +81,7 @@ Integration tests require a working Kubernetes cluster (via `Canonical K8s`) and
 
 * These tests require AWS-style S3 credentials, Azure Storage credentials, and GCS credentials.
 * If you're running in a CI environment (`CI=true`), a local RadosGW (via `microceph`) and a local Azurite instance will be created automatically.
-* A real GCS credentials is required to run all the test cases for the integration tests; only smoke tests will be run in a CI environment (`CI=true`).
+* A real GCS credentials is required to run all the test cases for the GCS integration tests; only smoke tests will be run in a CI environment (`CI=true`).
 * When testing locally, you **must** provide your own credentials or reuse those from `microceph` and `Azurite`.
 
 #### 1. Setup RadosGW and Azurite
@@ -133,7 +133,7 @@ export AZURE_ENDPOINT="http://$(hostname):10000/devstoreaccount1"
 >
 > **Note**: `AWS_ENDPOINT` and `AZURE_STORAGE_ENDPOINT` are optional, unless you are using local S3/Azurite
 >
-> **Note**: You can provide real `GCS_BUCKET` and `GCS_SERVICE_ACCOUNT_KEY_JSON` if you are testing it with GKE
+> **Note**: `GCS_BUCKET` and `GCS_SERVICE_ACCOUNT_KEY_JSON` are required if you are testing it on Google Cloud
 
 Then you can run the integration tests with:
 

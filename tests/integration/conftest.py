@@ -246,7 +246,7 @@ V86RTfnSHLljzUryAcdURX8=
         )
 
     return GcsConnectionInfo(
-        ci=True,
+        ci=False,
         bucket=os.environ["GCS_BUCKET"],
         service_account_key_json=os.environ["GCS_SERVICE_ACCOUNT_KEY_JSON"],
     )
