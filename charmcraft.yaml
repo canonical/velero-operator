@@ -181,7 +181,6 @@ parts:
       - libffi-dev
       - libssl-dev
       - pkg-config
-      - git
     override-build: |
       rustup default stable
       craftctl default
