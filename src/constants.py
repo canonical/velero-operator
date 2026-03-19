@@ -45,6 +45,7 @@ VELERO_VOLUME_SNAPSHOT_LOCATION_RESOURCE = create_namespaced_resource(
 S3_RELATION_NAME = "s3-credentials"
 AZURE_STORAGE_RELATION_NAME = "azure-storage"
 AZURE_SERVICE_PRINCIPAL_RELATION_NAME = "azure-service-principal"
+GCS_RELATION_NAME = "gcs-credentials"
 
 
 class StorageRelation(str, Enum):
@@ -56,3 +57,4 @@ class StorageRelation(str, Enum):
 
     S3 = S3_RELATION_NAME
     AZURE = AZURE_STORAGE_RELATION_NAME
+    GCS = GCS_RELATION_NAME

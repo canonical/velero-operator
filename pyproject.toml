@@ -12,8 +12,8 @@ cosl = "^1.0.0"
 lightkube = "^0.17.1"
 pydantic = "^2.11.3"
 tenacity = "^9.0.0"
+object-storage-charmlib = "^0.1.0"
 
-# Testing tools configuration
 [tool.coverage.run]
 branch = true
 
