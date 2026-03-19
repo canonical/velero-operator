@@ -39,12 +39,16 @@ APP_RELATION_NAME = "velero-backups"
 TEST_APP_FIRST_RELATION_NAME = "first-velero-backup-config"
 TEST_APP_SECOND_RELATION_NAME = "second-velero-backup-config"
 READY_MESSAGE = "Unit is Ready"
+BACKUP_STORAGE_LOCALTION_UNAVAILABLE_MESSAGE = (
+    "Velero Storage location is not ready: BackupStorageLocation is unavailable"
+)
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_1 = "Velero Deployment is not ready: ImagePullBackOff"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_2 = "Velero Deployment is not ready: ErrImagePull"
 MULTIPLE_RELATIONS_MESSAGE = (
-    "Only one Storage Provider should be related at the time: [s3-credentials|azure-storage]"
+    "Only one Storage Provider should be related at the time:"
+    " [s3-credentials|azure-storage|gcs-credentials]"
 )
-MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials|azure-storage]"
+MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials|azure-storage|gcs-credentials]"
 
 AZURE_INTEGRATOR = "azure-storage-integrator"
 AZURE_INTEGRATOR_CHANNEL = "latest/edge"
@@ -54,8 +58,12 @@ AZURE_AUTH_INTEGRATOR_CHANNEL = "1/edge"
 S3_INTEGRATOR = "s3-integrator"
 S3_INTEGRATOR_CHANNEL = "latest/stable"
 
+GCS_INTEGRATOR = "gcs-integrator"
+GCS_INTEGRATOR_CHANNEL = "1/edge"
+
 VELERO_AWS_PLUGIN_IMAGE_KEY = "velero-aws-plugin-image"
 VELERO_AZURE_PLUGIN_IMAGE_KEY = "velero-azure-plugin-image"
+VELERO_GCP_PLUGIN_IMAGE_KEY = "velero-gcp-plugin-image"
 
 
 def get_model(ops_test: OpsTest) -> Model:

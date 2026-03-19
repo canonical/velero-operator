@@ -79,8 +79,9 @@ Integration tests require a working Kubernetes cluster (via `Canonical K8s`) and
 
 **Important things to know before running the integration tests:**
 
-* These tests require AWS-style S3 credentials and Azure Storage credentials.
+* These tests require AWS-style S3 credentials, Azure Storage credentials, and GCS credentials.
 * If you're running in a CI environment (`CI=true`), a local RadosGW (via `microceph`) and a local Azurite instance will be created automatically.
+* A real GCS credentials is required to run all the test cases for the GCS integration tests; only smoke tests will be run in a CI environment (`CI=true`).
 * When testing locally, you **must** provide your own credentials or reuse those from `microceph` and `Azurite`.
 
 #### 1. Setup RadosGW and Azurite
@@ -94,13 +95,14 @@ When the `CI=true` environment variable is set:
 * S3 credentials are generated for a user `test`
 * A `testbucket` bucket is created
 * A local Azurite instance is started on port `10000`
-* The integration tests will use this local setup
 
 > **Note**: You can create your own S3 bucket and credentials if you prefer. Just ensure the `AWS_*` environment variables are set correctly.
 >
 > **Note**: RadosGW will be exposed under `$(hostname):7480`
 >
 > **Note**: Azurite will be exposed under `$(hostname):10000`
+>
+> **Note**: Only smoke tests will be run for GCS in CI environment
 
 ```bash
 CI=true tox -vve integration -- --model velero-testing
@@ -130,6 +132,8 @@ export AZURE_ENDPOINT="http://$(hostname):10000/devstoreaccount1"
 > **Note**: `AWS_S3_URI_STYLE` is optional, unless you are using local S3 (must be set to `path`)
 >
 > **Note**: `AWS_ENDPOINT` and `AZURE_STORAGE_ENDPOINT` are optional, unless you are using local S3/Azurite
+>
+> **Note**: `GCS_BUCKET` and `GCS_SERVICE_ACCOUNT_KEY_JSON` are required if you are testing it on Google Cloud
 
 Then you can run the integration tests with:
 

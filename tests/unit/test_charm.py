@@ -13,6 +13,7 @@ from constants import StorageRelation
 from velero import (
     AzureStorageProvider,
     BackupInfo,
+    GCSStorageProvider,
     S3StorageProvider,
     VeleroBackupStatusError,
     VeleroError,
@@ -25,6 +26,7 @@ USE_NODE_AGENT_CONFIG_KEY = "use-node-agent"
 DEFAULT_VOLUMES_TO_FS_BACKUP_CONFIG_KEY = "default-volumes-to-fs-backup"
 VELERO_AWS_PLUGIN_CONFIG_KEY = "velero-aws-plugin-image"
 VELERO_AZURE_PLUGIN_CONFIG_KEY = "velero-azure-plugin-image"
+VELERO_GCP_PLUGIN_CONFIG_KEY = "velero-gcp-plugin-image"
 RELATIONS = "|".join([r.value for r in StorageRelation])
 
 READY_MESSAGE = "Unit is Ready"
@@ -65,6 +67,7 @@ def mock_velero():
         VELERO_IMAGE_CONFIG_KEY,
         VELERO_AWS_PLUGIN_CONFIG_KEY,
         VELERO_AZURE_PLUGIN_CONFIG_KEY,
+        VELERO_GCP_PLUGIN_CONFIG_KEY,
     ],
 )
 def test_invalid_image_config(image_key):
@@ -300,6 +303,7 @@ def test_on_remove(mock_velero, mock_lightkube_client):
     [
         [testing.Relation(endpoint=StorageRelation.S3.value)],
         [testing.Relation(endpoint=StorageRelation.AZURE.value)],
+        [testing.Relation(endpoint=StorageRelation.GCS.value)],
         [
             testing.Relation(endpoint=StorageRelation.S3.value),
             testing.Relation(endpoint=StorageRelation.AZURE.value),
@@ -345,6 +349,14 @@ def test_storage_relation_properties(relations, mock_lightkube_client, mock_vele
                 "resource-group": "test-group",
             },
         ),
+        (
+            StorageRelation.GCS,
+            GCSStorageProvider,
+            {
+                "bucket": "test-gcs-bucket",
+                "secret-key": '{"type": "service_account"}',
+            },
+        ),
     ],
 )
 def test_storage_relation_changed_success(
@@ -382,6 +394,10 @@ def test_storage_relation_changed_success(
         ),
         (
             StorageRelation.AZURE,
+            {"test": "test"},
+        ),
+        (
+            StorageRelation.GCS,
             {"test": "test"},
         ),
     ],
@@ -618,6 +634,8 @@ def test_on_run_cli_action_failed(
         (True, False, StorageRelation.S3),
         (False, False, StorageRelation.AZURE),
         (True, False, StorageRelation.AZURE),
+        (False, False, StorageRelation.GCS),
+        (True, False, StorageRelation.GCS),
         (False, True, None),
         (True, True, None),
     ],
@@ -644,6 +662,7 @@ def test_on_config_changed_success(
                 VELERO_AWS_PLUGIN_CONFIG_KEY: "aws-image",
                 VELERO_IMAGE_CONFIG_KEY: "velero-image",
                 VELERO_AZURE_PLUGIN_CONFIG_KEY: "azure-image",
+                VELERO_GCP_PLUGIN_CONFIG_KEY: "gcp-image",
             },
             relations=relations,
         ),
@@ -660,6 +679,11 @@ def test_on_config_changed_success(
             mock_velero.update_plugin_image.assert_called_once_with(
                 mock_lightkube_client,
                 "azure-image",
+            )
+        elif relation == StorageRelation.GCS:
+            mock_velero.update_plugin_image.assert_called_once_with(
+                mock_lightkube_client,
+                "gcp-image",
             )
     else:
         mock_velero.update_plugin_image.assert_not_called()
