@@ -2,11 +2,15 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""Test charm for velero_backup_config library."""
+"""Test charm for velero_backup_config and k8s_backup_target libraries."""
 
 import logging
 
 import ops
+from charmlibs.interfaces.k8s_backup_target import (
+    K8sBackupTargetProvider,
+    K8sBackupTargetSpec,
+)
 from charms.velero_libs.v0.velero_backup_config import (
     VeleroBackupProvider,
     VeleroBackupSpec,
@@ -17,10 +21,11 @@ logger = logging.getLogger(__name__)
 
 FIRST_RELATION_NAME = "first-velero-backup-config"
 SECOND_RELATION_NAME = "second-velero-backup-config"
+K8S_BACKUP_ENDPOINT = "k8s-backup-endpoint"
 
 
 class TestCharm(ops.CharmBase):
-    """Test charm velero_backup_config lib."""
+    """Test charm velero_backup_config and k8s_backup_target libs."""
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -66,20 +71,29 @@ class TestCharm(ops.CharmBase):
             ),
         )
 
+        self._k8s_backup_config = K8sBackupTargetProvider(
+            self,
+            K8S_BACKUP_ENDPOINT,
+            spec=K8sBackupTargetSpec(
+                include_namespaces=["velero-integration-tests"],
+                include_resources=[
+                    "deployments",
+                    "persistentvolumeclaims",
+                    "pods",
+                    "persistentvolumes",
+                    "services",
+                ],
+                label_selector={"app": "dummy"},
+                ttl=str(self.config["ttl"]),
+            ),
+            refresh_event=[self.on.config_changed],
+        )
+
         self.framework.observe(self.on.start, self._on_start)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
-        self.framework.observe(
-            self.on[FIRST_RELATION_NAME].relation_joined, self._on_relation_joined
-        )
-        self.framework.observe(
-            self.on[FIRST_RELATION_NAME].relation_broken, self._on_relation_broken
-        )
-        self.framework.observe(
-            self.on[SECOND_RELATION_NAME].relation_joined, self._on_relation_joined
-        )
-        self.framework.observe(
-            self.on[SECOND_RELATION_NAME].relation_broken, self._on_relation_broken
-        )
+        for endpoint in (FIRST_RELATION_NAME, SECOND_RELATION_NAME, K8S_BACKUP_ENDPOINT):
+            self.framework.observe(self.on[endpoint].relation_joined, self._on_relation_joined)
+            self.framework.observe(self.on[endpoint].relation_broken, self._on_relation_broken)
 
     def _on_config_changed(self, event: ops.ConfigChangedEvent):
         """Handle the config changed event."""

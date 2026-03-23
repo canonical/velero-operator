@@ -11,6 +11,7 @@ from functools import cached_property
 from typing import Dict, List, Optional, Union, cast
 
 import ops
+from charmlibs.interfaces.k8s_backup_target import K8sBackupTargetRequirer
 from charms.data_platform_libs.v0.azure_storage import AzureStorageRequires
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from charms.data_platform_libs.v0.s3 import S3Requirer
@@ -28,6 +29,7 @@ from pydantic import ValidationError
 from config import CharmConfig
 from constants import (
     AZURE_SERVICE_PRINCIPAL_RELATION_NAME,
+    K8S_BACKUP_TARGET_ENDPOINT,
     VELERO_ALLOWED_SUBCOMMANDS,
     VELERO_BACKUPS_ENDPOINT,
     VELERO_BINARY_PATH,
@@ -100,6 +102,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
         self._grafana_dashboard = GrafanaDashboardProvider(self)
         self._backup_configs = VeleroBackupRequier(self, VELERO_BACKUPS_ENDPOINT)
+        self._k8s_backup_targets = K8sBackupTargetRequirer(self, K8S_BACKUP_TARGET_ENDPOINT)
 
         self.framework.observe(self.on.install, self._reconcile)
         self.framework.observe(self.on.update_status, self._reconcile)
@@ -110,6 +113,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         for relation in [r.value for r in StorageRelation] + [
             AZURE_SERVICE_PRINCIPAL_RELATION_NAME,
             VELERO_BACKUPS_ENDPOINT,
+            K8S_BACKUP_TARGET_ENDPOINT,
         ]:
             self.framework.observe(self.on[relation].relation_changed, self._reconcile)
             self.framework.observe(self.on[relation].relation_broken, self._reconcile)
@@ -263,7 +267,12 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             event.fail("Invalid target format. Use 'app:endpoint'")
             return
 
-        backup_spec = self._backup_configs.get_backup_spec(app, endpoint, model)
+        target_relation = self._find_backup_relation(app)
+        if not target_relation:
+            event.fail(f"No relation found for target '{target}'")
+            return
+
+        backup_spec = self._resolve_backup_spec(target_relation, app, endpoint, model)
         if not backup_spec:
             event.fail(f"No backup spec found for target '{target}' in model '{model}'")
             return
@@ -524,6 +533,45 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 "completion-timestamp": b.completion_timestamp,
             }
         return result
+
+    def _find_backup_relation(self, app: str) -> Optional[ops.Relation]:
+        """Find the backup relation for a target app.
+
+        Args:
+            app: The remote application name to find.
+
+        Returns:
+            The matching relation, or None if not found.
+        """
+        for endpoint in (VELERO_BACKUPS_ENDPOINT, K8S_BACKUP_TARGET_ENDPOINT):
+            for relation in self.model.relations.get(endpoint, []):
+                if relation.app and relation.app.name == app:
+                    return relation
+        return None
+
+    def _resolve_backup_spec(
+        self, relation: ops.Relation, app: str, endpoint: str, model: str
+    ) -> Optional[VeleroBackupSpec]:
+        """Resolve a VeleroBackupSpec from the given relation.
+
+        Args:
+            relation: The relation to read the spec from.
+            app: The application name.
+            endpoint: The relation endpoint name.
+            model: The model name.
+
+        Returns:
+            The backup specification if found, otherwise None.
+        """
+        if relation.name == VELERO_BACKUPS_ENDPOINT:
+            return self._backup_configs.get_backup_spec(app, endpoint, model)
+
+        if relation.name == K8S_BACKUP_TARGET_ENDPOINT:
+            k8s_spec = self._k8s_backup_targets.get_backup_spec(app, endpoint, model)
+            if k8s_spec:
+                return VeleroBackupSpec.model_validate(k8s_spec.model_dump())
+
+        return None
 
     def _cleanup_schedule_for_broken_relation(self, relation: ops.Relation) -> None:
         """Clean up schedule when a velero-backups relation is broken.
