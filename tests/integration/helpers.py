@@ -14,8 +14,8 @@ from juju.unit import Unit
 from lightkube import ApiError, Client
 from lightkube.core.resource import GlobalResource, NamespacedResource
 from lightkube.generic_resource import create_namespaced_resource
-from lightkube.resources.apps_v1 import Deployment
-from lightkube.resources.core_v1 import Pod
+from lightkube.resources.apps_v1 import DaemonSet, Deployment
+from lightkube.resources.core_v1 import Pod, Service, ServiceAccount
 from pytest_operator.plugin import OpsTest
 from tenacity import (
     Retrying,
@@ -597,7 +597,7 @@ async def get_application_data(
     return application_data
 
 
-async def deploy_velero_and_test_charm(
+async def deploy_velero_test_charm_and_s3_integrator(
     ops_test: OpsTest,
     velero_operator_charm_path: Union[str, Path],
     test_charm_path: Union[str, Path],
@@ -648,15 +648,30 @@ async def configure_s3_integrator(
     await model.wait_for_idle(apps=[S3_INTEGRATOR], status="active", timeout=TIMEOUT)
 
 
-async def remove_all_applications(ops_test: OpsTest) -> None:
+async def remove_all_applications(ops_test: OpsTest, lightkube_client: Client) -> None:
     """Remove velero-operator, s3-integrator, and test charm.
+
+    Also verifies that the core Velero resources created by velero-operator are
+    cleaned up from the model namespace after removal.
 
     Args:
         ops_test: The ops test framework instance.
+        lightkube_client: The lightkube client used to verify resource cleanup.
     """
     model = get_model(ops_test)
+    namespace = model.name
     await asyncio.gather(
         model.remove_application(APP_NAME, block_until_done=True),
         model.remove_application(S3_INTEGRATOR, block_until_done=True),
         model.remove_application(TEST_APP_NAME, block_until_done=True),
     )
+
+    for resource_type, name in (
+        (Deployment, "velero"),
+        (DaemonSet, "node-agent"),
+        (ServiceAccount, "velero"),
+        (Service, "velero-metrics"),
+    ):
+        k8s_assert_resource_not_exists(
+            lightkube_client, resource_type, name=name, namespace=namespace
+        )

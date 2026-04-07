@@ -15,7 +15,7 @@ from helpers import (
     TEST_APP_NAME,
     TIMEOUT,
     configure_s3_integrator,
-    deploy_velero_and_test_charm,
+    deploy_velero_test_charm_and_s3_integrator,
     get_application_data,
     get_model,
     get_relation_data,
@@ -42,7 +42,9 @@ async def test_build_and_deploy(
     test_charm_path,
 ):
     """Build and deploy the velero-operator and test charm."""
-    await deploy_velero_and_test_charm(ops_test, velero_operator_charm_path, test_charm_path)
+    await deploy_velero_test_charm_and_s3_integrator(
+        ops_test, velero_operator_charm_path, test_charm_path
+    )
 
 
 @pytest.mark.abort_on_fail
@@ -287,6 +289,6 @@ async def test_unrelate(ops_test: OpsTest):
 
 
 @pytest.mark.abort_on_fail
-async def test_remove(ops_test: OpsTest):
+async def test_remove(ops_test: OpsTest, lightkube_client):
     """Remove the velero-operator and s3-integrator charms."""
-    await remove_all_applications(ops_test)
+    await remove_all_applications(ops_test, lightkube_client)
