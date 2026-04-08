@@ -1,4 +1,4 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 import subprocess
@@ -26,6 +26,7 @@ from constants import (
 )
 from k8s_utils import K8sResource
 from velero import (
+    RestoreParams,
     Velero,
     VeleroBackupStatusError,
     VeleroError,
@@ -178,7 +179,7 @@ def test_check_velero_deployment_success(mock_lightkube_client):
     mock_deployment.status.conditions = [MagicMock(type="Available", status="True")]
     mock_lightkube_client.get.return_value = mock_deployment
 
-    assert Velero.check_velero_deployment(mock_lightkube_client, "velero", False) is None
+    assert Velero.check_velero_deployment(mock_lightkube_client, "velero") is None
 
 
 def test_check_velero_deployment_unavailable(mock_lightkube_client):
@@ -1263,8 +1264,7 @@ def test_create_restore_success(mock_check, mock_lightkube_client, velero):
 
     velero.create_restore(
         mock_lightkube_client,
-        backup_uid,
-        "none",
+        RestoreParams(backup_uid=backup_uid),
         {"app": "app", "endpoint": "endpoint"},
         None,
     )
@@ -1283,6 +1283,83 @@ def test_create_restore_success(mock_check, mock_lightkube_client, velero):
     assert spec.existingResourcePolicy == "none"
 
 
+@patch.object(Velero, "check_velero_restore")
+def test_create_restore_selectors_success_1(mock_check, mock_lightkube_client, velero):
+    """Check create_restore generates a correct Restore CR with selectors provided."""
+    backup_uid = "test-backup-uid"
+    backup_name = "test-backup"
+
+    backup_1 = MagicMock()
+    backup_1.metadata = ObjectMeta(uid="another-backup-uid", name="another-backup")
+    backup_2 = MagicMock()
+    backup_2.metadata = None
+    backup_3 = MagicMock()
+    backup_3.metadata = ObjectMeta(uid=backup_uid, name=backup_name)
+    mock_lightkube_client.list.return_value = [backup_1, backup_2, backup_3]
+
+    velero.create_restore(
+        mock_lightkube_client,
+        RestoreParams.model_validate(
+            {
+                "backup_uid": backup_uid,
+                "include_resources": "pods,services",
+                "exclude_namespaces": "kube-system,default",
+                "selector": "ns-label=value,res-label=value",
+            }
+        ),
+        {"app": "app", "endpoint": "endpoint"},
+        None,
+    )
+
+    args, kwargs = mock_lightkube_client.create.call_args
+    actual_restore = args[0]
+
+    spec = actual_restore.spec
+    assert spec.includedResources == ["pods", "services"]
+    assert spec.excludedNamespaces == ["kube-system", "default"]
+    assert spec.labelSelector == {"matchLabels": {"ns-label": "value", "res-label": "value"}}
+
+
+@patch.object(Velero, "check_velero_restore")
+def test_create_restore_selectors_success_2(mock_check, mock_lightkube_client, velero):
+    """Check create_restore generates a correct Restore CR with selectors provided."""
+    backup_uid = "test-backup-uid"
+    backup_name = "test-backup"
+
+    backup_1 = MagicMock()
+    backup_1.metadata = ObjectMeta(uid="another-backup-uid", name="another-backup")
+    backup_2 = MagicMock()
+    backup_2.metadata = None
+    backup_3 = MagicMock()
+    backup_3.metadata = ObjectMeta(uid=backup_uid, name=backup_name)
+    mock_lightkube_client.list.return_value = [backup_1, backup_2, backup_3]
+
+    velero.create_restore(
+        mock_lightkube_client,
+        RestoreParams.model_validate(
+            {
+                "backup_uid": backup_uid,
+                "exclude_resources": "pods,services",
+                "include_namespaces": "kube-system,default",
+                "or_selector": "ns-label=value or res-label=value",
+            }
+        ),
+        {"app": "app", "endpoint": "endpoint"},
+        None,
+    )
+
+    args, kwargs = mock_lightkube_client.create.call_args
+    actual_restore = args[0]
+
+    spec = actual_restore.spec
+    assert spec.excludedResources == ["pods", "services"]
+    assert spec.includedNamespaces == ["kube-system", "default"]
+    assert spec.orLabelSelectors == [
+        {"matchLabels": {"ns-label": "value"}},
+        {"matchLabels": {"res-label": "value"}},
+    ]
+
+
 def test_create_restore_get_api_error(mock_lightkube_client, velero):
     """Check create_restore raises a ApiError when the API call to get backup fails."""
     mock_response = MagicMock(spec=httpx.Response)
@@ -1291,7 +1368,9 @@ def test_create_restore_get_api_error(mock_lightkube_client, velero):
     mock_lightkube_client.list.side_effect = api_error
 
     with pytest.raises(ApiError):
-        velero.create_restore(mock_lightkube_client, "test-backup", "none", {}, {})
+        velero.create_restore(
+            mock_lightkube_client, RestoreParams(backup_uid="test-backup"), {}, {}
+        )
 
 
 @patch("velero.core.k8s_get_backup_name_by_uid", return_value="test-restore")
@@ -1303,7 +1382,7 @@ def test_create_restore_create_api_error(mock_lightkube_client, velero):
     mock_lightkube_client.create.side_effect = api_error
 
     with pytest.raises(VeleroError):
-        velero.create_restore(mock_lightkube_client, "test-restore", "test-backup", "none", {})
+        velero.create_restore(mock_lightkube_client, RestoreParams(backup_uid="test-backup"), {})
 
 
 def test_create_restore_missing_backup(mock_lightkube_client, velero):
@@ -1311,7 +1390,9 @@ def test_create_restore_missing_backup(mock_lightkube_client, velero):
     mock_lightkube_client.list.return_value = []
 
     with pytest.raises(VeleroError):
-        velero.create_restore(mock_lightkube_client, "test-backup", "none", {}, {})
+        velero.create_restore(
+            mock_lightkube_client, RestoreParams(backup_uid="test-backup"), {}, {}
+        )
 
 
 def test_check_velero_restore_success(mock_lightkube_client):

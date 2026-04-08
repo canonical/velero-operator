@@ -1,4 +1,4 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 import subprocess
@@ -39,23 +39,31 @@ APP_RELATION_NAME = "velero-backups"
 TEST_APP_FIRST_RELATION_NAME = "first-velero-backup-config"
 TEST_APP_SECOND_RELATION_NAME = "second-velero-backup-config"
 READY_MESSAGE = "Unit is Ready"
+BACKUP_STORAGE_LOCALTION_UNAVAILABLE_MESSAGE = (
+    "Velero Storage location is not ready: BackupStorageLocation is unavailable"
+)
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_1 = "Velero Deployment is not ready: ImagePullBackOff"
 DEPLOYMENT_IMAGE_ERROR_MESSAGE_2 = "Velero Deployment is not ready: ErrImagePull"
 MULTIPLE_RELATIONS_MESSAGE = (
-    "Only one Storage Provider should be related at the time: [s3-credentials|azure-storage]"
+    "Only one Storage Provider should be related at the time:"
+    " [s3-credentials|azure-storage|gcs-credentials]"
 )
-MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials|azure-storage]"
+MISSING_RELATION_MESSAGE = "Missing relation: [s3-credentials|azure-storage|gcs-credentials]"
 
 AZURE_INTEGRATOR = "azure-storage-integrator"
 AZURE_INTEGRATOR_CHANNEL = "latest/edge"
 AZURE_AUTH_INTEGRATOR = "azure-auth-integrator"
-AZURE_AUTH_INTEGRATOR_CHANNEL = "latest/edge"
+AZURE_AUTH_INTEGRATOR_CHANNEL = "1/edge"
 
 S3_INTEGRATOR = "s3-integrator"
 S3_INTEGRATOR_CHANNEL = "latest/stable"
 
+GCS_INTEGRATOR = "gcs-integrator"
+GCS_INTEGRATOR_CHANNEL = "1/edge"
+
 VELERO_AWS_PLUGIN_IMAGE_KEY = "velero-aws-plugin-image"
 VELERO_AZURE_PLUGIN_IMAGE_KEY = "velero-azure-plugin-image"
+VELERO_GCP_PLUGIN_IMAGE_KEY = "velero-gcp-plugin-image"
 
 
 def get_model(ops_test: OpsTest) -> Model:
@@ -406,6 +414,60 @@ def k8s_get_velero_backup_location(
             ), f"Backup location {backup_location_name} not found in namespace {namespace}"
         else:
             raise
+
+
+@retry(stop=stop_after_attempt(10), wait=wait_fixed(2), reraise=True)
+def k8s_get_velero_schedule(
+    client: Client,
+    schedule_name: str,
+    namespace: str,
+) -> Dict:
+    """Get the Velero schedule object.
+
+    Args:
+        client: The lightkube client to use for the retrieval.
+        schedule_name: The name of the schedule.
+        namespace: The namespace of the schedule.
+
+    Returns:
+        The Velero schedule object.
+
+    Raises:
+        AssertionError: If the schedule is not found or if there is an API error.
+    """
+    schedule = create_namespaced_resource(
+        group="velero.io", version="v1", kind="Schedule", plural="schedules"
+    )
+
+    try:
+        return client.get(schedule, name=schedule_name, namespace=namespace)
+    except ApiError as e:
+        if e.status.code == 404:
+            assert False, f"Schedule {schedule_name} not found in namespace {namespace}"
+        else:
+            raise
+
+
+def k8s_list_velero_schedules(
+    client: Client,
+    namespace: str,
+    labels: Optional[Dict[str, str]] = None,
+) -> list:
+    """List Velero schedules with optional label filter.
+
+    Args:
+        client: The lightkube client to use for the listing.
+        namespace: The namespace to list schedules from.
+        labels: Optional label selector to filter schedules.
+
+    Returns:
+        List of Velero schedule objects.
+    """
+    schedule = create_namespaced_resource(
+        group="velero.io", version="v1", kind="Schedule", plural="schedules"
+    )
+
+    return list(client.list(schedule, namespace=namespace, labels=labels))  # type: ignore
 
 
 def verify_pvc_content(

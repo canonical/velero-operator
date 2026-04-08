@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 """The Velero Charm."""
@@ -8,16 +8,21 @@ import logging
 import shlex
 import time
 from functools import cached_property
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union, cast
 
 import ops
 from charms.data_platform_libs.v0.azure_storage import AzureStorageRequires
 from charms.data_platform_libs.v0.data_models import TypedCharmBase
 from charms.data_platform_libs.v0.s3 import S3Requirer
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.velero_libs.v0.velero_backup_config import VeleroBackupRequier
+from charms.velero_libs.v0.velero_backup_config import (
+    VeleroBackupRequier,
+    VeleroBackupSpec,
+)
 from lightkube import ApiError, Client
 from lightkube.resources.rbac_authorization_v1 import ClusterRole
+from object_storage.gcs import GCSRequirer
 from pydantic import ValidationError
 
 from config import CharmConfig
@@ -35,7 +40,8 @@ from libs.azure_service_principal import AzureServicePrincipalRequirer
 from velero import (
     AzureStorageProvider,
     BackupInfo,
-    ExistingResourcePolicy,
+    GCSStorageProvider,
+    RestoreParams,
     S3StorageProvider,
     StorageProviderError,
     Velero,
@@ -73,6 +79,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         self.azure_service_principal = AzureServicePrincipalRequirer(
             self, AZURE_SERVICE_PRINCIPAL_RELATION_NAME
         )
+        self.gcs_storage = GCSRequirer(self, StorageRelation.GCS.value)
 
         self._scraping = MetricsEndpointProvider(
             self,
@@ -91,6 +98,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             ],
         )
 
+        self._grafana_dashboard = GrafanaDashboardProvider(self)
         self._backup_configs = VeleroBackupRequier(self, VELERO_BACKUPS_ENDPOINT)
 
         self.framework.observe(self.on.install, self._reconcile)
@@ -100,7 +108,8 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         self.framework.observe(self.on.remove, self._on_remove)
 
         for relation in [r.value for r in StorageRelation] + [
-            AZURE_SERVICE_PRINCIPAL_RELATION_NAME
+            AZURE_SERVICE_PRINCIPAL_RELATION_NAME,
+            VELERO_BACKUPS_ENDPOINT,
         ]:
             self.framework.observe(self.on[relation].relation_changed, self._reconcile)
             self.framework.observe(self.on[relation].relation_broken, self._reconcile)
@@ -176,6 +185,17 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                     ops.MaintenanceStatus("Configuring Velero Storage Provider")
                 )
                 self._configure_storage_locations()
+
+            # Clean up schedules when velero-backups relation is broken
+            if (
+                isinstance(event, ops.RelationBrokenEvent)
+                and event.relation.name == VELERO_BACKUPS_ENDPOINT
+            ):
+                self._cleanup_schedule_for_broken_relation(event.relation)
+
+            # Reconcile schedules if storage is configured
+            if self.storage_relation and self.velero.is_storage_configured(self.lightkube_client):
+                self._reconcile_schedules()
 
             self._check_status()
             self._log_and_set_status(ops.ActiveStatus("Unit is Ready"))
@@ -256,11 +276,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 backup_name_prefix,
                 backup_spec,
                 self.config.default_volumes_to_fs_backup,
-                labels={
-                    "app": app,
-                    "endpoint": endpoint,
-                    "model": model,
-                },
+                labels=self._get_resource_labels(app, endpoint, model),
                 annotations={
                     "created-at": str(round(time.time())),
                 },
@@ -293,9 +309,11 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
         event.log("Listing backups...")
         try:
-            backups = self.velero.list_backups(
-                self.lightkube_client, labels={"app": app, "endpoint": endpoint, "model": model}
-            )
+            if app and endpoint:
+                labels = self._get_resource_labels(app, endpoint, model)
+            else:
+                labels = {"model": model or self.model.name}
+            backups = self.velero.list_backups(self.lightkube_client, labels=labels)
             event.set_results(
                 {
                     "status": "success",
@@ -308,10 +326,12 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
 
     def on_restore_action(self, event: ops.ActionEvent) -> None:
         """Handle the restore action event."""
-        backup_uid = event.params["backup-uid"]
-        existing_resource_policy = ExistingResourcePolicy(
-            event.params.get("existing-resource-policy", "none")
-        )
+        try:
+            restore_params = RestoreParams.model_validate(event.params)
+        except ValidationError as ve:
+            event.fail(f"Invalid parameters: {ve}")
+            return
+
         check_message = (
             "You may check for more information using "
             "`run-cli command='restore describe {restore_name}'` "
@@ -328,8 +348,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         try:
             restore_name = self.velero.create_restore(
                 self.lightkube_client,
-                backup_uid,
-                existing_resource_policy,
+                restore_params,
                 annotations={
                     "created-at": str(round(time.time())),
                 },
@@ -362,6 +381,12 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                     self.config.velero_azure_plugin_image,
                     self.azure_storage.get_azure_storage_connection_info(),
                     service_principal or None,
+                )
+            elif self.storage_relation == StorageRelation.GCS:
+                provider = GCSStorageProvider(
+                    self.config.velero_gcp_plugin_image,
+                    # Use cast for now, we should migrate s3 and azure storage to the new lib later
+                    cast(Dict[str, str], self.gcs_storage.get_storage_connection_info()),
                 )
             else:  # pragma: no cover
                 raise ValueError("Unsupported storage provider or no provider configured.")
@@ -413,6 +438,10 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
             self.velero.update_plugin_image(
                 self.lightkube_client, self.config.velero_azure_plugin_image
             )
+        elif self.storage_relation == StorageRelation.GCS:
+            self.velero.update_plugin_image(
+                self.lightkube_client, self.config.velero_gcp_plugin_image
+            )
 
         if not self.config.use_node_agent:
             self.velero.remove_node_agent(self.lightkube_client)
@@ -433,6 +462,29 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         self.velero.upgrade(self.lightkube_client)
 
     # HELPER METHODS
+
+    def _get_resource_labels(
+        self, app: str, endpoint: str, model: Optional[str] = None, managed_by: bool = False
+    ) -> dict:
+        """Generate consistent labels for Velero resources.
+
+        Args:
+            app: The application name
+            endpoint: The relation endpoint name
+            model: The model name (defaults to current model)
+            managed_by: Whether to include the managed-by label
+
+        Returns:
+            Dictionary of labels
+        """
+        labels = {
+            "app": app,
+            "endpoint": endpoint,
+            "model": model or self.model.name,
+        }
+        if managed_by:
+            labels["managed-by"] = "velero-operator"
+        return labels
 
     def _log_and_set_status(
         self,
@@ -472,6 +524,89 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 "completion-timestamp": b.completion_timestamp,
             }
         return result
+
+    def _cleanup_schedule_for_broken_relation(self, relation: ops.Relation) -> None:
+        """Clean up schedule when a velero-backups relation is broken.
+
+        Args:
+            relation: The relation that is being broken
+        """
+        data = relation.data.get(relation.app, {})
+        app_name = data.get("app")
+        endpoint = data.get("relation_name")
+
+        if not app_name or not endpoint:
+            logger.debug(
+                "Skipping schedule cleanup: missing app_name (%s) or endpoint (%s)",
+                app_name,
+                endpoint,
+            )
+            return
+
+        logger.info("Cleaning up schedule for departing relation %s:%s", app_name, endpoint)
+        try:
+            self.velero.delete_schedule_by_labels(
+                self.lightkube_client,
+                labels=self._get_resource_labels(app_name, endpoint, managed_by=True),
+            )
+        except VeleroError as e:
+            logger.error("Failed to delete schedule for %s:%s: %s", app_name, endpoint, e)
+
+    def _reconcile_schedules(self) -> None:
+        """Reconcile Velero Schedule CRs based on velero-backups relation data.
+
+        Creates or updates schedules for specs with schedule field set.
+        Deletes schedules when the schedule field is removed from a spec.
+        """
+        relations = self.model.relations.get(VELERO_BACKUPS_ENDPOINT, [])
+
+        for relation in relations:
+            if not relation.app:
+                continue
+
+            data = relation.data.get(relation.app, {})
+            app_name = data.get("app")
+            endpoint = data.get("relation_name")
+            spec_json = data.get("spec", "{}")
+
+            if not app_name or not endpoint:
+                continue
+
+            try:
+                spec = VeleroBackupSpec.model_validate_json(spec_json)
+            except Exception as e:
+                logger.warning("Failed to parse backup spec for %s:%s: %s", app_name, endpoint, e)
+                continue
+
+            schedule_labels = self._get_resource_labels(app_name, endpoint, managed_by=True)
+
+            if spec.schedule:
+                # Create or update schedule
+                schedule_name_prefix = f"{app_name}-{endpoint}-"
+                try:
+                    self.velero.create_or_update_schedule(
+                        self.lightkube_client,
+                        schedule_name_prefix,
+                        spec,
+                        self.config.default_volumes_to_fs_backup,
+                        labels=schedule_labels,
+                    )
+                except VeleroError as e:
+                    logger.error(
+                        "Failed to create/update schedule for %s:%s: %s",
+                        app_name,
+                        endpoint,
+                        e,
+                    )
+            else:
+                # No schedule in spec, delete if exists
+                try:
+                    self.velero.delete_schedule_by_labels(
+                        self.lightkube_client,
+                        labels=schedule_labels,
+                    )
+                except VeleroError as e:
+                    logger.error("Failed to delete schedule for %s:%s: %s", app_name, endpoint, e)
 
     def _validate_config(self) -> None:
         """Check the charm configs and raise error if they are not correct.

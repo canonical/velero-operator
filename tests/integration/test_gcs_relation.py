@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-# Copyright 2026 Canonical Ltd.
+# Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 import asyncio
 import logging
+import os
+import time
 import uuid
 
 import pytest
 from helpers import (
     APP_NAME,
+    BACKUP_STORAGE_LOCALTION_UNAVAILABLE_MESSAGE,
     DEPLOYMENT_IMAGE_ERROR_MESSAGE_1,
     DEPLOYMENT_IMAGE_ERROR_MESSAGE_2,
+    GCS_INTEGRATOR,
+    GCS_INTEGRATOR_CHANNEL,
     MISSING_RELATION_MESSAGE,
     READY_MESSAGE,
-    S3_INTEGRATOR,
-    S3_INTEGRATOR_CHANNEL,
     TIMEOUT,
-    VELERO_AWS_PLUGIN_IMAGE_KEY,
+    VELERO_GCP_PLUGIN_IMAGE_KEY,
     assert_app_status,
     get_model,
     k8s_assert_resource_exists,
@@ -30,13 +33,16 @@ from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
 
+GCS_SA_SECRET_NAME = f"gcs-sa-secret-{time.time()}"
 BACKUP_NAME = f"test-backup-{uuid.uuid4()}"
 
 
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info, velero_operator_charm_path):
-    """Build the velero-operator and deploy it with the integrator charms."""
-    logger.info("Building and deploying velero-operator charm with s3-integrator")
+async def test_build_and_deploy(
+    ops_test: OpsTest, gcs_connection_info, velero_operator_charm_path, lightkube_client
+):
+    """Build the velero-operator and deploy it with the gcs-integrator charm."""
+    logger.info("Building and deploying velero-operator charm with gcs-integrator")
     model = get_model(ops_test)
 
     await asyncio.gather(
@@ -44,76 +50,91 @@ async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info, velero_op
             velero_operator_charm_path,
             application_name=APP_NAME,
             trust=True,
-            config={"use-node-agent": True, "default-volumes-to-fs-backup": True},
+            config={"use-node-agent": False, "default-volumes-to-fs-backup": False},
         ),
-        model.deploy(S3_INTEGRATOR, channel=S3_INTEGRATOR_CHANNEL),
-        model.wait_for_idle(apps=[APP_NAME, S3_INTEGRATOR], status="blocked", timeout=TIMEOUT),
+        model.deploy(GCS_INTEGRATOR, channel=GCS_INTEGRATOR_CHANNEL),
+        model.wait_for_idle(apps=[APP_NAME, GCS_INTEGRATOR], status="blocked", timeout=TIMEOUT),
     )
     assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
 
 
 @pytest.mark.abort_on_fail
-async def test_configure_s3_integrator(
-    ops_test: OpsTest,
-    s3_cloud_credentials,
-    s3_cloud_configs,
-):
-    """Configure the integrator charm with the credentials and configs."""
-    logger.info("Setting credentials for %s", S3_INTEGRATOR)
+async def test_configure_gcs_integrator(ops_test: OpsTest, gcs_connection_info):
+    """Configure the gcs-integrator charm with the bucket and service account credentials."""
+    logger.info("Setting credentials for %s", GCS_INTEGRATOR)
     model = get_model(ops_test)
-    app = model.applications[S3_INTEGRATOR]
+    app = model.applications[GCS_INTEGRATOR]
 
-    await app.set_config(s3_cloud_configs)
-    action = await app.units[0].run_action("sync-s3-credentials", **s3_cloud_credentials)
-    result = await action.wait()
-    assert result.results.get("return-code") == 0
+    _, stdout, _ = await ops_test.juju(
+        *[
+            "add-secret",
+            GCS_SA_SECRET_NAME,
+            f"secret-key={gcs_connection_info.service_account_key_json}",
+        ]
+    )
+    await model.grant_secret(GCS_SA_SECRET_NAME, GCS_INTEGRATOR)
+    await app.set_config({"bucket": gcs_connection_info.bucket, "credentials": stdout.strip()})
 
     await model.wait_for_idle(
-        apps=[S3_INTEGRATOR],
+        apps=[GCS_INTEGRATOR],
         status="active",
         timeout=TIMEOUT,
     )
 
 
 @pytest.mark.abort_on_fail
-async def test_relate_s3_integrator(ops_test: OpsTest):
-    """Test the relation between the velero-operator charm and the s3-integrator charm."""
-    logger.info("Relating velero-operator to %s", S3_INTEGRATOR)
+async def test_relate_gcs_integrator(ops_test: OpsTest, gcs_connection_info):
+    """Test the relation between the velero-operator charm and the gcs-integrator charm."""
+    logger.info("Relating velero-operator to %s", GCS_INTEGRATOR)
     model = get_model(ops_test)
 
-    await model.integrate(APP_NAME, S3_INTEGRATOR)
-    async with ops_test.fast_forward(fast_interval="60s"):
-        await model.wait_for_idle(
-            apps=[APP_NAME],
-            status="active",
-            timeout=TIMEOUT,
+    await model.integrate(APP_NAME, GCS_INTEGRATOR)
+
+    if gcs_connection_info.ci:
+        async with ops_test.fast_forward(fast_interval="60s"):
+            await model.wait_for_idle(
+                apps=[APP_NAME],
+                status="blocked",
+                timeout=TIMEOUT,
+            )
+        assert_app_status(
+            model.applications[APP_NAME], [BACKUP_STORAGE_LOCALTION_UNAVAILABLE_MESSAGE]
         )
-    assert_app_status(model.applications[APP_NAME], [READY_MESSAGE])
+    else:
+        async with ops_test.fast_forward(fast_interval="60s"):
+            await model.wait_for_idle(
+                apps=[APP_NAME],
+                status="active",
+                timeout=TIMEOUT,
+            )
+        assert_app_status(model.applications[APP_NAME], [READY_MESSAGE])
 
 
 @pytest.mark.abort_on_fail
-async def test_configure_s3_plugin_image(ops_test: OpsTest):
-    """Test the config-changed hook for the velero-aws-plugin-image config option."""
-    logger.info("Testing velero-aws-plugin-image config option")
+@pytest.mark.skipif(os.environ.get("CI") == "true", reason="Cannot test change gcs plugin on CI.")
+async def test_configure_gcs_plugin_image(ops_test: OpsTest):
+    """Test the config-changed hook for the velero-gcp-plugin-image config option."""
+    logger.info("Testing velero-gcp-plugin-image config option")
     model = get_model(ops_test)
     app = model.applications[APP_NAME]
     new_plugin_image = "velero-test-plugin-image"
 
     logger.info("Setting plugin image to %s", new_plugin_image)
-    await app.set_config({VELERO_AWS_PLUGIN_IMAGE_KEY: new_plugin_image})
+    await app.set_config({VELERO_GCP_PLUGIN_IMAGE_KEY: new_plugin_image})
     async with ops_test.fast_forward(fast_interval="60s"):
         await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked")
     assert_app_status(app, [DEPLOYMENT_IMAGE_ERROR_MESSAGE_1, DEPLOYMENT_IMAGE_ERROR_MESSAGE_2])
 
     logger.info("Resetting plugin image to default")
-    await app.reset_config([VELERO_AWS_PLUGIN_IMAGE_KEY])
+    await app.reset_config([VELERO_GCP_PLUGIN_IMAGE_KEY])
     async with ops_test.fast_forward(fast_interval="60s"):
         await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="active")
     assert_app_status(app, [READY_MESSAGE])
 
 
 @pytest.mark.abort_on_fail
-async def test_s3_backup(ops_test: OpsTest, k8s_test_resources, lightkube_client):
+@pytest.mark.skipif(os.environ.get("CI") == "true", reason="Cannot test backup to GCP on CI.")
+async def test_gcs_backup(ops_test: OpsTest, k8s_test_resources, lightkube_client):
     """Test the backup functionality of the velero-operator charm."""
     logger.info("Testing backup functionality")
     model = get_model(ops_test)
@@ -140,7 +161,8 @@ async def test_s3_backup(ops_test: OpsTest, k8s_test_resources, lightkube_client
 
 
 @pytest.mark.abort_on_fail
-async def test_s3_restore(ops_test: OpsTest, k8s_test_resources, lightkube_client):
+@pytest.mark.skipif(os.environ.get("CI") == "true", reason="Cannot test restore to GCP on CI.")
+async def test_gcs_restore(ops_test: OpsTest, k8s_test_resources, lightkube_client):
     """Test the restore functionality of the velero-operator charm."""
     logger.info("Testing restore functionality")
     model = get_model(ops_test)
@@ -165,28 +187,31 @@ async def test_s3_restore(ops_test: OpsTest, k8s_test_resources, lightkube_clien
 
 
 @pytest.mark.abort_on_fail
-async def test_unrelate_s3_integrator(ops_test: OpsTest):
-    """Test the unrelation between the velero-operator charm and the s3-integrator charm."""
-    logger.info("Unrelating velero-operator from %s", S3_INTEGRATOR)
+async def test_unrelate_gcs_integrator(ops_test: OpsTest):
+    """Test the unrelation between the velero-operator charm and the gcs-integrator charm."""
+    logger.info("Unrelating velero-operator from %s", GCS_INTEGRATOR)
     model = get_model(ops_test)
 
-    await ops_test.juju(*["remove-relation", APP_NAME, S3_INTEGRATOR])
+    await ops_test.juju(*["remove-relation", APP_NAME, GCS_INTEGRATOR])
     async with ops_test.fast_forward(fast_interval="60s"):
         await model.wait_for_idle(
             apps=[APP_NAME],
             status="blocked",
             timeout=TIMEOUT,
         )
-    assert_app_status(model.applications[APP_NAME], [MISSING_RELATION_MESSAGE])
+    assert_app_status(
+        model.applications[APP_NAME],
+        [MISSING_RELATION_MESSAGE, BACKUP_STORAGE_LOCALTION_UNAVAILABLE_MESSAGE],
+    )
 
 
 @pytest.mark.abort_on_fail
 async def test_remove(ops_test: OpsTest):
-    """Remove the velero-operator and s3-integrator charms."""
-    logger.info("Removing velero-operator and s3-integrator charms")
+    """Remove the velero-operator and gcs-integrator charms."""
+    logger.info("Removing velero-operator and gcs-integrator charms")
     model = get_model(ops_test)
 
     await asyncio.gather(
         model.remove_application(APP_NAME, block_until_done=True),
-        model.remove_application(S3_INTEGRATOR, block_until_done=True),
+        model.remove_application(GCS_INTEGRATOR, block_until_done=True),
     )

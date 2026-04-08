@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 import asyncio
@@ -23,34 +23,38 @@ from helpers import (
     is_relation_broken,
     is_relation_joined,
     k8s_assert_resource_exists,
+    k8s_assert_resource_not_exists,
     k8s_delete_and_wait,
     k8s_get_velero_backup,
     run_charm_action,
     verify_pvc_content,
 )
-from lightkube.resources.core_v1 import Namespace
+from lightkube.resources.core_v1 import ConfigMap, Namespace, Service
 from pytest_operator.plugin import OpsTest
 
 logger = logging.getLogger(__name__)
 
 
 @pytest.mark.abort_on_fail
-async def test_build_and_deploy(ops_test: OpsTest, s3_connection_info):
+async def test_build_and_deploy(
+    ops_test: OpsTest,
+    s3_connection_info,
+    velero_operator_charm_path,
+    test_charm_path,
+):
     """Build and deploy the velero-operator and test charm."""
     logger.info("Building and deploying velero-operator charm and test charm")
-    velero_charm = await ops_test.build_charm(".")
-    test_charm = await ops_test.build_charm("tests/integration/test_charm")
     model = get_model(ops_test)
 
     await asyncio.gather(
         model.deploy(
-            velero_charm,
+            velero_operator_charm_path,
             application_name=APP_NAME,
             trust=True,
             config={"use-node-agent": True, "default-volumes-to-fs-backup": True},
         ),
         model.deploy(
-            test_charm,
+            test_charm_path,
             application_name=TEST_APP_NAME,
         ),
         model.deploy(S3_INTEGRATOR, channel=S3_INTEGRATOR_CHANNEL),
@@ -295,6 +299,153 @@ async def test_create_restore(ops_test: OpsTest, k8s_test_resources, lightkube_c
             lightkube_client, type(resource), name=resource.metadata.name, namespace=test_namespace
         )
     verify_pvc_content(lightkube_client, test_namespace, test_pvc_name, test_file, 2)
+
+
+@pytest.mark.abort_on_fail
+async def test_create_selective_restore(ops_test: OpsTest, k8s_test_resources, lightkube_client):
+    """Test creating a restore with selectors.
+
+    The second backup contains ConfigMap (app=dummy-2) and Service dummy-service (app=dummy).
+    Using selector 'app=dummy-2' should restore only the ConfigMap, not the Service.
+    """
+    logger.info("Testing create-restore action with selectors")
+    model = get_model(ops_test)
+    unit = model.applications[APP_NAME].units[0]
+    test_namespace = k8s_test_resources["namespace"].metadata.name
+    k8s_delete_and_wait(lightkube_client, Namespace, test_namespace, grace_period=0)
+
+    logger.info("Getting current backups")
+    result = await run_charm_action(unit, "list-backups", app=TEST_APP_NAME)
+    assert len(result["backups"]) > 0, "No backups found"
+    logger.info("Backups found: %s", result["backups"])
+
+    backup_uid = next(
+        (
+            uid
+            for uid, backup in result["backups"].items()
+            if backup.get("endpoint") == TEST_APP_SECOND_RELATION_NAME
+        ),
+        None,
+    )
+    assert backup_uid is not None, "No backup found for second endpoint"
+
+    logger.info("Creating a restore with label selector")
+    await run_charm_action(
+        unit,
+        "restore",
+        **{
+            "backup-uid": backup_uid,
+            "exclude-resources": "services",
+            "selector": "app=dummy-2",
+        },
+    )
+
+    logger.info("Verifying the restore")
+    # we expect only the ConfigMap with dummy-config name to be restored
+    k8s_assert_resource_exists(
+        lightkube_client, ConfigMap, name="dummy-config", namespace=test_namespace
+    )
+    k8s_assert_resource_not_exists(
+        lightkube_client, Service, name="dummy-service", namespace=test_namespace
+    )
+
+
+@pytest.mark.abort_on_fail
+async def test_create_or_selector_restore(ops_test: OpsTest, k8s_test_resources, lightkube_client):
+    """Test creating a restore filtered by or-selector.
+
+    The second backup contains ConfigMap (app=dummy-2), Service dummy-service (app=dummy),
+    and Service dummy-service-2 (app=dummy-2). Using or-selector 'app=dummy-2' should restore
+    only resources labelled app=dummy-2: ConfigMap + Service (dummy-service-2).
+    """
+    logger.info("Testing create-restore action with or-selector")
+    model = get_model(ops_test)
+    unit = model.applications[APP_NAME].units[0]
+    test_namespace = k8s_test_resources["namespace"].metadata.name
+    k8s_delete_and_wait(lightkube_client, Namespace, test_namespace, grace_period=0)
+
+    result = await run_charm_action(unit, "list-backups", app=TEST_APP_NAME)
+    backup_uid = next(
+        (
+            uid
+            for uid, backup in result["backups"].items()
+            if backup.get("endpoint") == TEST_APP_SECOND_RELATION_NAME
+        ),
+        None,
+    )
+    assert backup_uid is not None, "No backup found for second endpoint"
+
+    logger.info("Creating a restore with or-selector 'app=dummy-2'")
+    await run_charm_action(
+        unit,
+        "restore",
+        **{
+            "backup-uid": backup_uid,
+            "or-selector": "app=dummy-2",
+        },
+    )
+
+    logger.info(
+        "Verifying the restore: dummy-config and dummy-service-2 expected; dummy-service not"
+    )
+    k8s_assert_resource_exists(
+        lightkube_client, ConfigMap, name="dummy-config", namespace=test_namespace
+    )
+    k8s_assert_resource_exists(
+        lightkube_client, Service, name="dummy-service-2", namespace=test_namespace
+    )
+    k8s_assert_resource_not_exists(
+        lightkube_client, Service, name="dummy-service", namespace=test_namespace
+    )
+
+
+@pytest.mark.abort_on_fail
+async def test_create_existing_resource_policy_restore(
+    ops_test: OpsTest, k8s_test_resources, lightkube_client
+):
+    """Test creating a restore with existing-resource-policy=update.
+
+    After the previous test the namespace contains only dummy-config (ConfigMap). Restoring
+    the full second backup with 'update' policy should successfully overwrite the ConfigMap and
+    create the missing Services, resulting in all three resources being present.
+    """
+    logger.info("Testing create-restore action with existing-resource-policy=update")
+    model = get_model(ops_test)
+    unit = model.applications[APP_NAME].units[0]
+    test_namespace = k8s_test_resources["namespace"].metadata.name
+    # Namespace already exists from the previous test with dummy-config present.
+
+    result = await run_charm_action(unit, "list-backups", app=TEST_APP_NAME)
+    backup_uid = next(
+        (
+            uid
+            for uid, backup in result["backups"].items()
+            if backup.get("endpoint") == TEST_APP_SECOND_RELATION_NAME
+        ),
+        None,
+    )
+    assert backup_uid is not None, "No backup found for second endpoint"
+
+    logger.info("Creating a restore with existing-resource-policy=update")
+    await run_charm_action(
+        unit,
+        "restore",
+        **{
+            "backup-uid": backup_uid,
+            "existing-resource-policy": "update",
+        },
+    )
+
+    logger.info("Verifying all resources from the second backup are present after update restore")
+    k8s_assert_resource_exists(
+        lightkube_client, ConfigMap, name="dummy-config", namespace=test_namespace
+    )
+    k8s_assert_resource_exists(
+        lightkube_client, Service, name="dummy-service", namespace=test_namespace
+    )
+    k8s_assert_resource_exists(
+        lightkube_client, Service, name="dummy-service-2", namespace=test_namespace
+    )
 
 
 @pytest.mark.abort_on_fail

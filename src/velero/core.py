@@ -1,12 +1,11 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 """Velero Core library to interact with Velero CLI and Kubernetes resources."""
 
 import logging
 import subprocess
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Union
 
 from charms.velero_libs.v0.velero_backup_config import VeleroBackupSpec
 from lightkube import Client, codecs
@@ -50,59 +49,266 @@ from k8s_utils import (
     k8s_retry_check,
 )
 
-from .crds import Backup, BackupSpecModel, ExistingResourcePolicy, Restore, RestoreSpecModel
+from .crds import (
+    Backup,
+    BackupSpecModel,
+    Restore,
+    RestoreSpecModel,
+    Schedule,
+    ScheduleSpecModel,
+)
 from .providers import VeleroStorageProvider
+from .utils import (
+    BackupInfo,
+    RestoreParams,
+    ScheduleInfo,
+    VeleroBackupStatusError,
+    VeleroCLIError,
+    VeleroError,
+    VeleroRestoreStatusError,
+    VeleroStatusError,
+)
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class BackupInfo:
-    """Data class to hold backup information."""
+class ScheduleMixin:
+    """Mixin class providing Velero Schedule CR management methods."""
 
-    uid: str
-    name: str
-    labels: Dict[str, str]
-    annotations: Dict[str, str]
-    phase: str
-    start_timestamp: str
-    completion_timestamp: Optional[str] = None
+    _namespace: str
+
+    def create_or_update_schedule(
+        self,
+        kube_client: Client,
+        name_prefix: str,
+        spec: VeleroBackupSpec,
+        default_volumes_to_fs_backup: bool,
+        labels: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Create or update a Velero Schedule Custom Resource.
+
+        Uses generateName for new schedules. Finds existing schedule by labels to update.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            name_prefix (str): The prefix for the schedule name (used with generateName).
+            spec (VeleroBackupSpec): The backup specification containing schedule
+                and backup details.
+            default_volumes_to_fs_backup (bool): Whether to default volumes to filesystem backup.
+            labels (Optional[Dict[str, str]]): Labels to apply to the schedule resource.
+                Also used to find existing schedule for updates.
+
+        Returns:
+            str: The name of the created or updated schedule.
+
+        Raises:
+            VeleroError: If the schedule creation/update fails.
+            ValueError: If spec.schedule is not set.
+        """
+        if not spec.schedule:
+            raise ValueError("Schedule cron expression is required in spec.schedule")
+
+        backup_template = BackupSpecModel(
+            storageLocation=VELERO_BACKUP_LOCATION_NAME,
+            volumeSnapshotLocations=[VELERO_VOLUME_SNAPSHOT_LOCATION_NAME],
+            includedNamespaces=spec.include_namespaces,
+            includedResources=spec.include_resources,
+            excludedNamespaces=spec.exclude_namespaces,
+            excludedResources=spec.exclude_resources,
+            ttl=spec.ttl,
+            includeClusterResources=spec.include_cluster_resources,
+            labelSelector=({"matchLabels": spec.label_selector} if spec.label_selector else None),
+            defaultVolumesToFsBackup=default_volumes_to_fs_backup,
+        )
+
+        schedule_spec = ScheduleSpecModel(
+            schedule=spec.schedule,
+            template=backup_template,
+            paused=spec.paused,
+            skipImmediately=spec.skip_immediately,
+            useOwnerReferencesInBackup=spec.use_owner_references_in_backup,
+        )
+
+        logger.info(
+            "Creating/updating Velero Schedule: prefix: '%s', cron: '%s'",
+            name_prefix,
+            spec.schedule,
+        )
+
+        try:
+            # Find existing schedule by labels
+            existing = self._find_schedule_by_labels(kube_client, labels)
+
+            if existing:
+                existing_schedule = kube_client.get(
+                    Schedule, existing.name, namespace=self._namespace
+                )
+                if existing_schedule.metadata:
+                    existing_schedule.metadata.labels = labels
+                existing_schedule.spec = schedule_spec
+                kube_client.replace(existing_schedule)
+                logger.info("Updated Velero Schedule '%s'", existing.name)
+                return existing.name
+            else:
+                # Create new schedule with generateName
+                schedule = Schedule(
+                    metadata=ObjectMeta(
+                        generateName=name_prefix,
+                        namespace=self._namespace,
+                        labels=labels,
+                    ),
+                    spec=schedule_spec,
+                )
+                created = kube_client.create(schedule)
+                if not created.metadata or not created.metadata.name:
+                    raise VeleroError("Failed to create Velero Schedule: no name in metadata")
+                logger.info("Created Velero Schedule '%s'", created.metadata.name)
+                return created.metadata.name
+        except ApiError as ae:
+            logger.error("Failed to create/update Velero Schedule '%s': %s", name_prefix, ae)
+            raise VeleroError(f"Failed to create/update Velero Schedule '{name_prefix}'") from ae
+
+    def _find_schedule_by_labels(
+        self, kube_client: Client, labels: Optional[Dict[str, str]]
+    ) -> Optional[ScheduleInfo]:
+        """Find a schedule by labels.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            labels (Optional[Dict[str, str]]): Labels to filter schedules.
+
+        Returns:
+            Optional[ScheduleInfo]: The first matching schedule, or None if not found.
+        """
+        if not labels:
+            return None
+
+        schedules = self.list_schedules(kube_client, labels=labels)
+        return schedules[0] if schedules else None
+
+    def delete_schedule(self, kube_client: Client, name: str) -> None:
+        """Delete a Velero Schedule Custom Resource by name.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            name (str): The name of the schedule to delete.
+
+        Raises:
+            VeleroError: If the schedule deletion fails.
+        """
+        logger.info("Deleting Velero Schedule: '%s'", name)
+        try:
+            kube_client.delete(Schedule, name, namespace=self._namespace)
+            logger.info("Deleted Velero Schedule '%s'", name)
+        except ApiError as ae:
+            if ae.status.code == 404:
+                logger.info("Velero Schedule '%s' not found, nothing to delete", name)
+                return
+            logger.error("Failed to delete Velero Schedule '%s': %s", name, ae)
+            raise VeleroError(f"Failed to delete Velero Schedule '{name}'") from ae
+
+    def delete_schedule_by_labels(self, kube_client: Client, labels: Dict[str, str]) -> None:
+        """Delete a Velero Schedule Custom Resource by labels.
+
+        Finds the schedule matching the labels and deletes it.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            labels (Dict[str, str]): Labels to identify the schedule to delete.
+
+        Raises:
+            VeleroError: If the schedule deletion fails.
+        """
+        existing = self._find_schedule_by_labels(kube_client, labels)
+        if existing:
+            self.delete_schedule(kube_client, existing.name)
+        else:
+            logger.info("No schedule found with labels %s, nothing to delete", labels)
+
+    def get_schedule(self, kube_client: Client, name: str) -> Optional[ScheduleInfo]:
+        """Get a Velero Schedule by name.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            name (str): The name of the schedule to retrieve.
+
+        Returns:
+            Optional[ScheduleInfo]: The schedule information if found, None otherwise.
+
+        Raises:
+            VeleroError: If the schedule retrieval fails (except for 404).
+        """
+        try:
+            schedule = kube_client.get(Schedule, name, namespace=self._namespace)
+            if not schedule.metadata or not schedule.spec:
+                return None
+
+            status = schedule.status
+            phase = status.phase if status and status.phase else "Unknown"
+            return ScheduleInfo(
+                name=schedule.metadata.name or name,
+                schedule=schedule.spec.schedule,
+                phase=phase,
+                labels=schedule.metadata.labels or {},
+                paused=schedule.spec.paused or False,
+                last_backup=status.lastBackup if status else None,
+            )
+        except ApiError as ae:
+            if ae.status.code == 404:
+                return None
+            logger.error("Failed to get Velero Schedule '%s': %s", name, ae)
+            raise VeleroError(f"Failed to get Velero Schedule '{name}'") from ae
+
+    def list_schedules(
+        self, kube_client: Client, labels: Optional[Mapping[str, Optional[str]]] = None
+    ) -> List[ScheduleInfo]:
+        """List all Velero schedules in the cluster.
+
+        Args:
+            kube_client (Client): The lightkube client used to interact with the cluster.
+            labels (Optional[Mapping[str, Optional[str]]]): Labels to filter the schedules.
+
+        Returns:
+            List[ScheduleInfo]: A list of schedule information.
+
+        Raises:
+            VeleroError: If the schedule listing fails.
+        """
+        try:
+            schedules = kube_client.list(
+                Schedule,
+                namespace=self._namespace,
+                labels=labels,  # type: ignore
+            )
+            schedule_infos = []
+            for schedule in schedules:
+                if not schedule.metadata or not schedule.metadata.name or not schedule.spec:
+                    logger.warning("Schedule metadata or spec is missing")
+                    continue
+
+                status = schedule.status
+                phase = status.phase if status and status.phase else "Unknown"
+                schedule_infos.append(
+                    ScheduleInfo(
+                        name=schedule.metadata.name,
+                        schedule=schedule.spec.schedule,
+                        phase=phase,
+                        labels=schedule.metadata.labels or {},
+                        paused=schedule.spec.paused or False,
+                        last_backup=status.lastBackup if status else None,
+                    )
+                )
+            return schedule_infos
+        except ApiError as ae:
+            logger.error("Failed to list Velero Schedules: %s", ae)
+            raise VeleroError("Failed to list Velero Schedules") from ae
 
 
-class VeleroError(Exception):
-    """Base class for Velero exceptions."""
+class Velero(ScheduleMixin):
+    """Wrapper for the Velero binary.
 
-
-class VeleroStatusError(VeleroError):
-    """Exception raised for Velero status errors."""
-
-
-class VeleroBackupStatusError(VeleroStatusError):
-    """Exception raised for Velero backup status errors."""
-
-    def __init__(self, name: str, reason: str) -> None:
-        """Initialize the VeleroBackupStatusError with a name and reason."""
-        super().__init__(f"Velero backup '{name}' failed: {reason}")
-        self.name = name
-        self.reason = reason
-
-
-class VeleroRestoreStatusError(VeleroStatusError):
-    """Exception raised for Velero restore status errors."""
-
-    def __init__(self, name: str, reason: str) -> None:
-        """Initialize the VeleroRestoreStatusError with a name and reason."""
-        super().__init__(f"Velero restore '{name}' failed: {reason}")
-        self.name = name
-        self.reason = reason
-
-
-class VeleroCLIError(VeleroError):
-    """Exception raised for Velero CLI errors."""
-
-
-class Velero:
-    """Wrapper for the Velero binary."""
+    Inherits schedule management methods from ScheduleMixin.
+    """
 
     def __init__(self, velero_binary_path: str, namespace: str) -> None:
         """Initialize the Velero class.
@@ -871,8 +1077,7 @@ class Velero:
     def create_restore(
         self,
         kube_client: Client,
-        backup_uid: str,
-        existing_resource_policy: ExistingResourcePolicy = ExistingResourcePolicy.No,
+        restore_params: RestoreParams,
         labels: Optional[Dict[str, str]] = None,
         annotations: Optional[Dict[str, str]] = None,
     ) -> str:
@@ -880,10 +1085,7 @@ class Velero:
 
         Args:
             kube_client (Client): The lightkube client used to interact with the cluster.
-            backup_uid (str): The UID of the backup to restore from.
-                Will be used to generate the restore name.
-            existing_resource_policy (ExistingResourcePolicy, optional):
-                Policy for existing resources. Defaults to ExistingResourcePolicy.No ("none").
+            restore_params (VeleroRestoreParams): The restore parameters containing the details.
             labels (Optional[Dict[str, str]], optional):
                 Additional labels to apply to the restore resource.
             annotations (Optional[Dict[str, str]], optional):
@@ -897,15 +1099,15 @@ class Velero:
             VeleroError: If the restore creation fails.
             VeleroRestoreStatusError: If the restore status is not successful.
         """
-        logger.info("Checking if Velero Backup with UID '%s' exists", backup_uid)
+        logger.info("Checking if Velero Backup with UID '%s' exists", restore_params.backup_uid)
         backup_name = k8s_get_backup_name_by_uid(
             kube_client,
-            backup_uid,
+            restore_params.backup_uid,
             self._namespace,
         )
 
         if not backup_name:
-            raise VeleroError(f"Velero Backup with UID '{backup_uid}' not found")
+            raise VeleroError(f"Velero Backup with UID '{restore_params.backup_uid}' not found")
 
         restore = Restore(
             metadata=ObjectMeta(
@@ -916,7 +1118,19 @@ class Velero:
             ),
             spec=RestoreSpecModel(
                 backupName=backup_name,
-                existingResourcePolicy=existing_resource_policy,
+                existingResourcePolicy=restore_params.existing_resource_policy,
+                includedNamespaces=restore_params.include_namespaces,
+                includedResources=restore_params.include_resources,
+                excludedNamespaces=restore_params.exclude_namespaces,
+                excludedResources=restore_params.exclude_resources,
+                labelSelector=(
+                    {"matchLabels": restore_params.selector} if restore_params.selector else None
+                ),
+                orLabelSelectors=(
+                    [{"matchLabels": {k: v}} for k, v in restore_params.or_selector.items()]
+                    if restore_params.or_selector
+                    else None
+                ),
             ),
         )
 

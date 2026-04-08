@@ -1,4 +1,4 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 # poetry
@@ -12,8 +12,8 @@ cosl = "^1.0.0"
 lightkube = "^0.17.1"
 pydantic = "^2.11.3"
 tenacity = "^9.0.0"
+object-storage-charmlib = "^0.1.0"
 
-# Testing tools configuration
 [tool.coverage.run]
 branch = true
 
@@ -55,7 +55,7 @@ ignore-words-list = "NotIn"
 # LSPs and formatters
 [tool.pyright]
 include = ["src"]
-extraPaths = ["lib"]
+extraPaths = ["lib", "src"]
 exclude = ["src/libs/*"]
 
 [tool.black]

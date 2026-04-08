@@ -1,4 +1,4 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 type: charm
@@ -20,6 +20,14 @@ config:
       description: "Test TTL config"
       default: "24h5m5s"
       type: string
+    schedule:
+      description: "Cron schedule for backups (optional, empty means no schedule)"
+      default: ""
+      type: string
+    paused:
+      description: "Whether the schedule is paused"
+      default: false
+      type: boolean
 
 provides:
   first-velero-backup-config:

@@ -1,4 +1,4 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 import dataclasses
@@ -8,16 +8,19 @@ import os
 import socket
 import subprocess
 import uuid
+from pathlib import Path
 
 import boto3
 import botocore.exceptions
 import pytest
+import pytest_asyncio
 from azure.core.exceptions import ResourceExistsError, ServiceRequestError
 from azure.storage.blob import BlobServiceClient
 from helpers import k8s_assert_resource_exists
 from lightkube import ApiError, Client, codecs
 from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.core_v1 import Namespace
+from pytest_operator.plugin import OpsTest
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 logger = logging.getLogger(__name__)
@@ -26,12 +29,14 @@ MICROCEPH_RGW_PORT = 7480
 AZURITE_BLOB_PORT = 10000
 AZURITE_ACCOUNT = "devstoreaccount1"
 AZURITE_KEY = (
-    "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/" "K1SZFPTOtr/KBHBeksoGMGw=="
+    "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
 )
 K8S_TEST_NAMESPACE = "velero-integration-tests"
 K8S_TEST_RESOURCES_YAML_PATH = "./tests/integration/resources/test_resources.yaml.j2"
 K8S_TEST_PVC_RESOURCE_NAME = "test-pvc"
 K8S_TEST_PVC_FILE_PATH = "test-file"
+VELERO_OPERATOR_CHARM_ENV = "VELERO_OPERATOR_CHARM_PATH"
+TEST_CHARM_ENV = "TEST_CHARM_PATH"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -47,6 +52,13 @@ class AzureBlobConnectionInfo:
     storage_account: str
     container: str
     resource_group: str
+
+
+@dataclasses.dataclass(frozen=True)
+class GcsConnectionInfo:
+    ci: bool
+    bucket: str
+    service_account_key_json: str  # JSON string of the GCP service account key
 
 
 def is_ci() -> bool:
@@ -152,6 +164,7 @@ def setup_azurite() -> AzureBlobConnectionInfo:
             "--blobPort",
             str(AZURITE_BLOB_PORT),
             "--loose",
+            "--skipApiVersionCheck",
         ]
     )
 
@@ -173,6 +186,73 @@ def setup_azurite() -> AzureBlobConnectionInfo:
 
 
 @pytest.fixture(scope="session")
+def gcs_connection_info(tmp_path_factory: pytest.TempPathFactory) -> GcsConnectionInfo:
+    """Return GCS connection info based on environment."""
+    if is_ci():
+        return GcsConnectionInfo(
+            ci=True,
+            bucket="fake-bucket",
+            service_account_key_json=json.dumps(
+                {
+                    "type": "service_account",
+                    "project_id": "my-project-id",
+                    "private_key_id": "abcdef1234567890abcdef1234567890abcdef12",
+                    "private_key": """
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC4lsLkyO2Tt59n
+67R4GEP8FUO9l+9X2RHcAmvRXTfkzLGw49guI3A7UzGYgbiVMGtYREcIwabXNgjJ
+KVfFiJoe1HU3sWt31XIe+e71HcjTqEY2JTMHs3hd1D0G0uYXGDmqcC+3MageAZmc
+35hlCOfeeOm2CSM/fzpaEfT0IczO8ui6ldrcJqT/ln7tBcUt//dhIma2UrypE2Lm
+aUQ9BtPKKdEwM6PIbvI2lA9TVdPQo34bI3eeRk2lTebQezFZvl24UL2ULrf4RdUK
+YwVn984QFfDZP0EBX0NKOk0rPmHVGG7EGJS7fw4ZYP+H5UQrAbxT77rfsT2NNwmv
+0N+ohfeXAgMBAAECggEANeLtKlTt5j2or3HD0Xtj/WdHy0Vbfc3ExPGAADKyanzH
+MtiQ94co8GitBdR4yjTEYZQtGIVP62u+zNrg4K2sMGvdfFCzCtyo4BoehDgZtJBf
+Ttc1On5OGTYoSqGuwfc0fmkZxOUeKwRUj9NGbdhXuD6cG6Q3QgYmRr0PQWXMoG0Q
+pEcUvKS2E1+Zew9j/aRf3B+byhHgJC3xTSSVVx7GVtAX/a90mw62oi3vsVB+1Bzq
+MhyW9JBJj9PAn4s1KSPT+xR7PsmlsdzGUYEBov9u96z2UEpeBU74PhDgdlRMhBpS
+B+Z54DN9Lfhp1PtbkhmnBZr62ywxr4gCKV2Q0sIIQQKBgQD/oeZEkFSPiGkqCUBA
+Et20R/+ZaZzeOl2uLjwHYToAkZ5Fis9kYSMQ/ijdZP3qOaYl2cMO4GzE7FraJlwT
+xQ1s3UiHWaQZ75udFnzjFoJy80BQUHDj2neHk7Y7P7Jaa00cTk/08KuY2yMut+5b
+P7LvquUoioBEurIvqnsJCfJdCQKBgQC42rXIPJnLfupc76RZNBIT/cr42EaeZD60
+aRkiJ5ZEBqET5Dwg3KCw4JR9WtTwpY0hPzLLGetUKVR0giRnpuAvwnV5dpUMPnnU
+2fMLaQw17RfO7AdIA8frfrrlqtPfRAXLSPpuJAfI7vPnOEPC5f4gHMjW3ebHGm5Z
+cMJoMod3nwKBgCuqwUX3DarTF3vJxsLrNhoEroHLS7OebsBBP5nXHuxX85xXgOPZ
+v/64G8zt4n3vSRVwJGTXK11cLozTPqlV4Nw21JviUSjpCEEGRWEZSEFQkizmANK7
+T+3F6rwmPlY5vBtYuUnTDsz2qgTiAIJv2CYeoDSTrCORbLy9t3Ss0UzZAoGACWx0
+6fFU8c/ViMlauoVyCnzctRTpfLeljrLw6hHUkkE4QvhWrGIy+vFoAH/57Q6zhCdh
+ooL+wTqeKJZd3r7eHPEv5fJKpOYmddhqkIFZcwJUPWNA98XhkjrSslSkGnSwSu28
+fpLtpquv2XC/25a3/tEY2ANV+X56c6rQ7ljtGQcCgYEAu9yRIfvuGR9rqLLQFDzc
+XRXLTYR0tRX2BcNLrugEzTcwRYupPGsTYR3KHlKLs5Rpl3oCNXsNwDJw817BomZQ
+PkAx5NKbWtUjXqmNOfWeM+lv9EBUJMfdRURj2vofGlOq4sO6IaRMvVSli7zCeD0w
+V86RTfnSHLljzUryAcdURX8=
+-----END PRIVATE KEY-----
+        """,
+                    "client_email": "gcs-integrator@my-project-id.iam.gserviceaccount.com",
+                    "client_id": "123456789012345678901",
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/gcs-integrator%40my-project-id.iam.gserviceaccount.com",
+                    "universe_domain": "googleapis.com",
+                }
+            ),
+        )
+
+    required_env_vars = ["GCS_SERVICE_ACCOUNT_KEY_JSON", "GCS_BUCKET"]
+    missing_or_empty = [var for var in required_env_vars if not os.environ.get(var)]
+    if missing_or_empty:
+        raise RuntimeError(
+            f"Missing or empty required GCS environment variables: {', '.join(missing_or_empty)}"
+        )
+
+    return GcsConnectionInfo(
+        ci=False,
+        bucket=os.environ["GCS_BUCKET"],
+        service_account_key_json=os.environ["GCS_SERVICE_ACCOUNT_KEY_JSON"],
+    )
+
+
+@pytest.fixture(scope="session")
 def s3_connection_info() -> S3ConnectionInfo:
     """Return S3 connection info based on environment."""
     if is_ci():
@@ -182,7 +262,7 @@ def s3_connection_info() -> S3ConnectionInfo:
     missing_or_empty = [var for var in required_env_vars if not os.environ.get(var)]
     if missing_or_empty:
         raise RuntimeError(
-            f"Missing or empty required AWS environment variables: {", ".join(missing_or_empty)}",
+            f"Missing or empty required AWS environment variables: {', '.join(missing_or_empty)}",
         )
 
     return S3ConnectionInfo(
@@ -238,7 +318,7 @@ def azure_connection_info() -> AzureBlobConnectionInfo:
     missing_or_empty = [var for var in required_env_vars if not os.environ.get(var)]
     if missing_or_empty:
         raise RuntimeError(
-            f"Missing or empty required Azure environment variables: {", ".join(missing_or_empty)}"
+            f"Missing or empty required Azure environment variables: {', '.join(missing_or_empty)}"
         )
 
     return AzureBlobConnectionInfo(
@@ -285,6 +365,40 @@ def lightkube_client() -> Client:
     """Return a lightkube client to use in this session."""
     client = Client(field_manager="integration-tests")
     return client
+
+
+@pytest_asyncio.fixture(scope="module")
+async def velero_operator_charm_path(ops_test: OpsTest) -> Path | str:
+    """Return prebuilt velero-operator charm path, or build it if not provided."""
+    if prebuilt_path := os.environ.get(VELERO_OPERATOR_CHARM_ENV):
+        if os.path.exists(prebuilt_path):
+            logger.info("Using prebuilt velero charm from %s", prebuilt_path)
+            return prebuilt_path
+        logger.warning(
+            "%s is set to %s but file does not exist; building charm instead",
+            VELERO_OPERATOR_CHARM_ENV,
+            prebuilt_path,
+        )
+
+    logger.info("Building velero-operator charm")
+    return await ops_test.build_charm(".")
+
+
+@pytest_asyncio.fixture(scope="module")
+async def test_charm_path(ops_test: OpsTest) -> Path | str:
+    """Return prebuilt test charm path, or build it if not provided."""
+    if prebuilt_path := os.environ.get(TEST_CHARM_ENV):
+        if os.path.exists(prebuilt_path):
+            logger.info("Using prebuilt test charm from %s", prebuilt_path)
+            return prebuilt_path
+        logger.warning(
+            "%s is set to %s but file does not exist; building charm instead",
+            TEST_CHARM_ENV,
+            prebuilt_path,
+        )
+
+    logger.info("Building integration test charm")
+    return await ops_test.build_charm("tests/integration/test_charm")
 
 
 @pytest.fixture(scope="module")

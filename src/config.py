@@ -1,4 +1,4 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 """Configuration for the charm."""
@@ -13,6 +13,7 @@ class CharmConfig(BaseConfigModel):
     velero_image: str
     velero_aws_plugin_image: str
     velero_azure_plugin_image: str
+    velero_gcp_plugin_image: str
     use_node_agent: bool
     default_volumes_to_fs_backup: bool
 
