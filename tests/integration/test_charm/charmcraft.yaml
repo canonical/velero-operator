@@ -34,3 +34,5 @@ provides:
     interface: velero_backup_config
   second-velero-backup-config:
     interface: velero_backup_config
+  k8s-backup-endpoint:
+    interface: k8s_backup_target
