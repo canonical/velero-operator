@@ -66,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: pipx install tox
-      - run: tox -vve unit
+      - run: tox -e unit
 
   promtool:
     name: Prometheus rules check
@@ -118,7 +118,7 @@ jobs:
       contents: read
 
   integration:
-    name: Integration test
+    name: Integration tests
     needs:
       - build
       - build-test-charm
@@ -137,18 +137,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download packed charm
-        uses: actions/download-artifact@v4
-        with:
-          pattern: ${{ needs.build.outputs.artifact-prefix }}-*
-          merge-multiple: true
-
-      - name: Download packed test charm
-        uses: actions/download-artifact@v4
-        with:
-          pattern: ${{ needs.build-test-charm.outputs.artifact-prefix }}-*
-          merge-multiple: true
-
       - name: Install dependencies
         run: pipx install tox
 
@@ -159,13 +147,19 @@ jobs:
           sudo snap install concierge --classic
           sudo concierge prepare --trace
 
-      - name: Run integration tests
+      - name: Download packed charm(s)
+        timeout-minutes: 5
+        uses: actions/download-artifact@v4
+        with:
+          pattern: packed-charm-*
+          merge-multiple: true
+
+      - name: Integration tests
         env:
           VELERO_OPERATOR_CHARM_PATH: ${{ github.workspace }}/velero-operator_ubuntu@24.04-amd64.charm
-          TEST_CHARM_PATH: ${{ github.workspace }}/test-charm-velero_ubuntu@24.04-amd64.charm
+          TEST_CHARM_PATH: ${{ github.workspace }}/tests/integration/test_charm/test-charm-velero_ubuntu@24.04-amd64.charm
         run: tox -vve integration -- --model testing ${{ matrix.test_file }}
 
-      # On failure, capture debugging resources
       - name: Get all
         run: kubectl get all -A
         if: failure()
@@ -194,12 +188,14 @@ jobs:
         run: juju status
         if: always()
 
-      - name: Get operator logs
-        run: juju debug-log --replay --include velero-operator/0
+      - name: Get velero-operator workload logs
+        run: kubectl logs --tail 100 -n testing -l app.kubernetes.io/name=velero-operator -c velero-operator
         if: failure()
 
-      - name: Collect charm debug artifacts
+      - name: Get operator logs
+        run: kubectl logs --tail 100 -n testing -l app.kubernetes.io/name=velero-operator -c charm
+        if: failure()
+
+      - name: Save debug artifacts
         uses: canonical/kubeflow-ci/actions/dump-charm-debug-artifacts@main
-        with:
-          artifact-prefix: velero-operator
         if: failure()
