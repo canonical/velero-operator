@@ -1,28 +1,33 @@
-# reusable workflow triggered manually
-name: Release charm to other tracks and channels
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+name: Release to Charmhub
 
 on:
-  workflow_dispatch:
-    inputs:
-      destination-channel:
-        description: 'Destination Channel'
-        required: true
-      origin-channel:
-        description: 'Origin Channel'
-        required: true
+  push:
+    branches:
+      - main
+      - track/**
 
 jobs:
-  promote-charm:
-    name: Promote charm
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - name: Release charm to channel
-        uses: canonical/charming-actions/release-charm@2.7.0
-        with:
-          credentials: ${{ secrets.CHARMCRAFT_CREDENTIALS }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          destination-channel: ${{ github.event.inputs.destination-channel }}
-          origin-channel: ${{ github.event.inputs.origin-channel }}
-          tag-prefix: ${{ github.event.inputs.charm-name }}
-          charm-path: .
+  ci-tests:
+    uses: ./.github/workflows/ci.yaml
+    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+
+  release:
+    name: Release charm
+    needs:
+      - ci-tests
+    uses: canonical/data-platform-workflows/.github/workflows/release_charm_edge.yaml@v49.0.1
+    with:
+      track: ${{ needs.ci-tests.outputs.track }}
+      artifact-prefix: ${{ needs.ci-tests.outputs.artifact-prefix }}
+      path-to-charm-directory: .
+    secrets:
+      charmhub-token: ${{ secrets.CHARMCRAFT_CREDENTIALS }}
+    permissions:
+      actions: read
+      contents: write  # Needed to create git tags
