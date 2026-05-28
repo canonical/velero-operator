@@ -1,0 +1,111 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+run-cli:
+  description: Run Velero CLI command. Used to manage Velero backup/restores
+  params:
+    command:
+      description: |
+        The Velero action to run, allowed commands are: 'backup', 'restore', 'schedule'.
+        Please refer to the Velero CLI documentation for more details on the available commands and their options at:
+        https://velero.io/docs/main/
+      type: string
+      examples:
+      - "backup get"
+      - "backup create my-backup --include-namespaces default"
+      - "backup describe my-backup"
+      - "restore get"
+      - "restore create --from-backup my-backup"
+      - "restore describe my-backup"
+  required:
+  - command
+  additionalProperties: false
+create-backup:
+  description: Create a Velero backup using the velero-backups relation.
+  params:
+    target:
+      description: |
+        The target app and the relation to use for creating the backup.
+        Format should be "app:endpoint".
+      type: string
+      examples:
+      - "kubeflow-velero:user-workload-backups"
+    model:
+      description: |
+        The model of the target app to use for creating the backup.
+        If not provided, it will use the current model.
+      type: string
+      examples:
+      - "kubeflow"
+  required:
+  - target
+  additionalProperties: false
+list-backups:
+  description: List all Velero backups using the velero-backups relation.
+  params:
+    app:
+      description: |
+        Optional target app to use for listing backups.
+        If not provided, it will list all backups across all relations.
+      type: string
+      examples:
+      - "kubeflow-velero"
+    endpoint:
+      description: |
+        Optional target endpoint to use for listing backups.
+        Can only be used if the app is provided.
+        If not provided, it will list all backups across all endpoints for the specified app.
+      type: string
+      examples:
+      - "user-workload-backups"
+    model:
+      description: |
+        Optional model of the target app to use for listing backups.
+        If not provided, it will list backup across all models.
+      type: string
+      examples:
+      - "kubeflow"
+  additionalProperties: false
+restore:
+  description: Restore a Velero backup using the velero-backups relation.
+  params:
+    backup-uid:
+      description: |
+        The UID of the backup to use, can be retrieved by running the `list-backups` action.
+      type: string
+      examples:
+      - "123e4567-e89b-12d3-a456-426614174000"
+    existing-resource-policy:
+      description: |
+        Restore Policy to be used during the restore workflow, can be - `none` or `update`
+      type: string
+      enum:
+      - "none"
+      - "update"
+      default: "none"
+      examples:
+      - "none"
+      - "update"
+    include-namespaces:
+      type: string
+      description: "Comma-separated namespaces to include in the restore."
+    exclude-namespaces:
+      type: string
+      description: "Comma-separated namespaces to exclude from the restore."
+    include-resources:
+      type: string
+      description: "Comma-separated Kubernetes resources to include."
+    exclude-resources:
+      type: string
+      description: "Comma-separated Kubernetes resources to exclude."
+    selector:
+      type: string
+      description: |
+        "Kubernetes label selectors (e.g. `key1=val1,key2=val2`) to filter objects to restore."
+    or-selector:
+      type: string
+      description: |
+        "OR label selectors (e.g. `key1=val1 or key2=val2 or key3=val3`) to filter objects to restore."
+  required:
+  - backup-uid
+  additionalProperties: false
