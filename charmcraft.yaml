@@ -83,7 +83,7 @@ actions:
     - command
     additionalProperties: false
   create-backup:
-    description: Create a Velero backup using the velero-backups relation.
+    description: Create a Velero backup using the velero-backups or k8s-backup-target relation.
     params:
       target:
         description: |
@@ -209,6 +209,9 @@ requires:
     optional: true
   velero-backups:
     interface: velero_backup_config
+    optional: true
+  k8s-backup-target:
+    interface: k8s_backup_target
     optional: true
 
 provides:

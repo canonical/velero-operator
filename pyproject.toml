@@ -13,6 +13,7 @@ lightkube = "^0.17.1"
 pydantic = "^2.11.3"
 tenacity = "^9.0.0"
 object-storage-charmlib = "^0.1.0"
+charmlibs-interfaces-k8s-backup-target = "~=0.1.0"
 
 [tool.coverage.run]
 branch = true

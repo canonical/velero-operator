@@ -677,6 +677,22 @@ tenacity = "*"
 test = ["black", "pytest"]
 
 [[package]]
+name = "charmlibs-interfaces-k8s-backup-target"
+version = "0.1.0.post0"
+description = "The charmlibs.interfaces.k8s-backup-target package."
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "charmlibs_interfaces_k8s_backup_target-0.1.0.post0-py3-none-any.whl", hash = "sha256:91827aa1e75bbd178dbe6fcf11995f425c5300c5a08d78243563462cb4c8a4c2"},
+    {file = "charmlibs_interfaces_k8s_backup_target-0.1.0.post0.tar.gz", hash = "sha256:7452241b5573ad68b5d3d1e781a0858c81f78984c42e68778cdd981ceedcee8b"},
+]
+
+[package.dependencies]
+ops = "*"
+pydantic = "*"
+
+[[package]]
 name = "charset-normalizer"
 version = "3.4.4"
 description = "The Real First Universal Charset Detector. Open, modern and actively maintained alternative to Chardet."
@@ -4335,4 +4351,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "0938271deadef2304aae88fcaf8a18a4142c09383a076370d4e66f8e5d660ec5"
+content-hash = "3a142c9cd69c808b11c4b0ac84ebe087d1473884252f213866ae1c8502218e75"

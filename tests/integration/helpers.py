@@ -1,9 +1,10 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
+import asyncio
 import subprocess
 from pathlib import Path
-from typing import Dict, Optional, Type
+from typing import Dict, Optional, Type, Union
 
 import yaml
 from juju.action import Action
@@ -13,8 +14,8 @@ from juju.unit import Unit
 from lightkube import ApiError, Client
 from lightkube.core.resource import GlobalResource, NamespacedResource
 from lightkube.generic_resource import create_namespaced_resource
-from lightkube.resources.apps_v1 import Deployment
-from lightkube.resources.core_v1 import Pod
+from lightkube.resources.apps_v1 import DaemonSet, Deployment
+from lightkube.resources.core_v1 import Pod, Service, ServiceAccount
 from pytest_operator.plugin import OpsTest
 from tenacity import (
     Retrying,
@@ -36,8 +37,10 @@ UNTRUST_ERROR_MESSAGE = (
     "The charm must be deployed with '--trust' flag enabled, run 'juju trust ...'"
 )
 APP_RELATION_NAME = "velero-backups"
+K8S_BACKUP_TARGET_RELATION_NAME = "k8s-backup-target"
 TEST_APP_FIRST_RELATION_NAME = "first-velero-backup-config"
 TEST_APP_SECOND_RELATION_NAME = "second-velero-backup-config"
+TEST_APP_K8S_BACKUP_ENDPOINT = "k8s-backup-endpoint"
 READY_MESSAGE = "Unit is Ready"
 BACKUP_STORAGE_LOCALTION_UNAVAILABLE_MESSAGE = (
     "Velero Storage location is not ready: BackupStorageLocation is unavailable"
@@ -592,3 +595,83 @@ async def get_application_data(
     relation_data = await get_relation_data(ops_test, application_name, endpoint, related_endpoint)
     application_data = relation_data[0]["application-data"]
     return application_data
+
+
+async def deploy_velero_test_charm_and_s3_integrator(
+    ops_test: OpsTest,
+    velero_operator_charm_path: Union[str, Path],
+    test_charm_path: Union[str, Path],
+) -> None:
+    """Deploy velero-operator, test charm, and s3-integrator.
+
+    Args:
+        ops_test: The ops test framework instance.
+        velero_operator_charm_path: Path to the velero-operator charm.
+        test_charm_path: Path to the test charm.
+    """
+    model = get_model(ops_test)
+    await asyncio.gather(
+        model.deploy(
+            velero_operator_charm_path,
+            application_name=APP_NAME,
+            trust=True,
+            config={"use-node-agent": True, "default-volumes-to-fs-backup": True},
+        ),
+        model.deploy(
+            test_charm_path,
+            application_name=TEST_APP_NAME,
+        ),
+        model.deploy(S3_INTEGRATOR, channel=S3_INTEGRATOR_CHANNEL),
+        model.wait_for_idle(apps=[APP_NAME], status="blocked", timeout=TIMEOUT),
+        model.wait_for_idle(apps=[TEST_APP_NAME], status="waiting", timeout=TIMEOUT),
+    )
+
+
+async def configure_s3_integrator(
+    ops_test: OpsTest,
+    s3_cloud_credentials: dict,
+    s3_cloud_configs: dict,
+) -> None:
+    """Configure the S3 integrator charm with credentials and configs.
+
+    Args:
+        ops_test: The ops test framework instance.
+        s3_cloud_credentials: S3 credential parameters.
+        s3_cloud_configs: S3 config parameters.
+    """
+    model = get_model(ops_test)
+    app = model.applications[S3_INTEGRATOR]
+    await app.set_config(s3_cloud_configs)
+    action = await app.units[0].run_action("sync-s3-credentials", **s3_cloud_credentials)
+    result = await action.wait()
+    assert result.results.get("return-code") == 0
+    await model.wait_for_idle(apps=[S3_INTEGRATOR], status="active", timeout=TIMEOUT)
+
+
+async def remove_all_applications(ops_test: OpsTest, lightkube_client: Client) -> None:
+    """Remove velero-operator, s3-integrator, and test charm.
+
+    Also verifies that the core Velero resources created by velero-operator are
+    cleaned up from the model namespace after removal.
+
+    Args:
+        ops_test: The ops test framework instance.
+        lightkube_client: The lightkube client used to verify resource cleanup.
+    """
+    model = get_model(ops_test)
+    namespace = model.name
+    await asyncio.gather(
+        model.remove_application(APP_NAME, block_until_done=True),
+        model.remove_application(S3_INTEGRATOR, block_until_done=True),
+        model.remove_application(TEST_APP_NAME, block_until_done=True),
+    )
+
+    for resource_type, name in (
+        (Deployment, "velero"),
+        (DaemonSet, "node-agent"),
+        (ServiceAccount, "velero"),
+        (Service, "velero-metrics"),
+    ):
+        k8s_assert_resource_not_exists(
+            lightkube_client, resource_type, name=name, namespace=namespace
+        )

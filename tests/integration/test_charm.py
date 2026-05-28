@@ -108,20 +108,16 @@ async def test_config_use_node_agent(ops_test: OpsTest, lightkube_client):
     app = model.applications[APP_NAME]
 
     logger.info("Setting use-node-agent to false")
-    await asyncio.gather(
-        app.set_config({USE_NODE_AGENT_CONFIG_KEY: "false"}),
-        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
-    )
+    await app.set_config({USE_NODE_AGENT_CONFIG_KEY: "false"})
+    await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked", idle_period=30)
     assert_app_status(app, [MISSING_RELATION_MESSAGE])
     k8s_assert_resource_not_exists(
         lightkube_client, DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name
     )
 
     logger.info("Setting use-node-agent to true")
-    await asyncio.gather(
-        app.set_config({USE_NODE_AGENT_CONFIG_KEY: "true"}),
-        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
-    )
+    await app.set_config({USE_NODE_AGENT_CONFIG_KEY: "true"})
+    await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked", idle_period=30)
     assert_app_status(app, [MISSING_RELATION_MESSAGE])
     k8s_assert_resource_exists(
         lightkube_client, DaemonSet, name=VELERO_NODE_AGENT_NAME, namespace=model.name
@@ -136,19 +132,15 @@ async def test_config_default_volumes_to_fs_backup(ops_test: OpsTest, lightkube_
     app = model.applications[APP_NAME]
 
     logger.info("Setting default-volumes-to-fs-backup to false")
-    await asyncio.gather(
-        app.set_config({"default-volumes-to-fs-backup": "false"}),
-        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
-    )
+    await app.set_config({"default-volumes-to-fs-backup": "false"})
+    await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked", idle_period=30)
     assert_app_status(app, [MISSING_RELATION_MESSAGE])
     args = k8s_get_velero_deployment_container_args(lightkube_client, model.name)
     assert "--default-volumes-to-fs-backup=false" in args
 
     logger.info("Setting default-volumes-to-fs-backup to true")
-    await asyncio.gather(
-        app.set_config({"default-volumes-to-fs-backup": "true"}),
-        model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked"),
-    )
+    await app.set_config({"default-volumes-to-fs-backup": "true"})
+    await model.wait_for_idle(apps=[APP_NAME], timeout=TIMEOUT, status="blocked", idle_period=30)
     assert_app_status(app, [MISSING_RELATION_MESSAGE])
     args = k8s_get_velero_deployment_container_args(lightkube_client, model.name)
     assert "--default-volumes-to-fs-backup=true" in args

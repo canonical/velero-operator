@@ -33,6 +33,7 @@ VELERO_SECRET_KEY = "creds"
 VELERO_ALLOWED_SUBCOMMANDS = {"backup", "restore", "schedule"}
 
 VELERO_BACKUPS_ENDPOINT = "velero-backups"
+K8S_BACKUP_TARGET_ENDPOINT = "k8s-backup-target"
 
 VELERO_BACKUP_LOCATION_RESOURCE = create_namespaced_resource(
     "velero.io", "v1", "BackupStorageLocation", "backupstoragelocations"

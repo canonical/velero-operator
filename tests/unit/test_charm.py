@@ -43,6 +43,7 @@ K8S_API_ERROR_MESSAGE = "Failed to access K8s API. See juju debug-log for detail
 INVALID_CONFIG_MESSAGE = "Invalid configuration: "
 UPGRADE_MESSAGE = "Upgrading Velero"
 VELERO_BACKUP_ENDPOINT = "velero-backups"
+K8S_BACKUP_TARGET_ENDPOINT = "k8s-backup-target"
 
 
 @pytest.fixture()
@@ -1511,3 +1512,194 @@ def test_run_list_backups_action_with_app_and_endpoint(
         assert labels["app"] == "test-app"
         assert labels["endpoint"] == "test-endpoint"
         assert ctx.action_results.get("status") == "success"
+
+
+# --- k8s-backup-target tests ---
+
+
+K8S_BACKUP_TARGET_APP_DATA = {
+    "backup_targets": '[{"app": "test-app", "relation_name": "test-endpoint",'
+    ' "model": "test-model", "spec": {"include_namespaces": ["test-namespace"]}}]',
+}
+
+
+def test_create_backup_action_with_k8s_backup_target(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test create-backup action works with k8s-backup-target relation."""
+    target = "test-app:test-endpoint"
+    model = "test-model"
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = testing.Relation(
+            endpoint=K8S_BACKUP_TARGET_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data=K8S_BACKUP_TARGET_APP_DATA,
+        )
+
+        # Act
+        ctx.run(
+            ctx.on.action("create-backup", params={"target": target, "model": model}),
+            testing.State(relations=[relation]),
+        )
+
+        # Assert
+        mock_velero.create_backup.assert_called_once()
+        assert ctx.action_results.get("status") == "success"
+
+
+def test_create_backup_action_prefers_velero_backup_config(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test create-backup prefers velero_backup_config over k8s_backup_target."""
+    target = "test-app:test-endpoint"
+    model = "test-model"
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        velero_relation = testing.Relation(
+            endpoint=VELERO_BACKUP_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data={
+                "app": "test-app",
+                "model": "test-model",
+                "relation_name": "test-endpoint",
+                "spec": '{"include_namespaces": ["velero-ns"], "schedule": "0 2 * * *"}',
+            },
+        )
+        k8s_relation = testing.Relation(
+            endpoint=K8S_BACKUP_TARGET_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data=K8S_BACKUP_TARGET_APP_DATA,
+        )
+
+        # Act
+        ctx.run(
+            ctx.on.action("create-backup", params={"target": target, "model": model}),
+            testing.State(relations=[velero_relation, k8s_relation]),
+        )
+
+        # Assert - should use velero_backup_config spec (with velero-ns, not test-namespace)
+        mock_velero.create_backup.assert_called_once()
+        call_args = mock_velero.create_backup.call_args
+        spec = call_args[0][2]
+        assert spec.include_namespaces == ["velero-ns"]
+
+
+def test_create_backup_action_k8s_backup_target_no_spec(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test create-backup fails when k8s-backup-target relation has no matching spec."""
+    target = "test-app:test-endpoint"
+    model = "wrong-model"
+    with patch.object(
+        VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+    ) as mock_storage_rel:
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = testing.Relation(
+            endpoint=K8S_BACKUP_TARGET_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data=K8S_BACKUP_TARGET_APP_DATA,
+        )
+
+        with pytest.raises(testing.ActionFailed):
+            ctx.run(
+                ctx.on.action("create-backup", params={"target": target, "model": model}),
+                testing.State(relations=[relation]),
+            )
+
+
+def test_find_backup_relation_skips_relation_without_app(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test _find_backup_relation skips relations where relation.app is None."""
+    target = "test-app:test-endpoint"
+    model = "test-model"
+    with patch.object(
+        VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+    ) as mock_storage_rel:
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        # A relation with no remote_app_name simulates relation.app being None
+        # during a relation-departed or similar transient state.
+        # We need a relation that has app=None plus a valid one to find.
+        relation_no_app = testing.Relation(
+            endpoint=K8S_BACKUP_TARGET_ENDPOINT,
+        )
+        relation_with_app = testing.Relation(
+            endpoint=K8S_BACKUP_TARGET_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data=K8S_BACKUP_TARGET_APP_DATA,
+        )
+
+        ctx.run(
+            ctx.on.action("create-backup", params={"target": target, "model": model}),
+            testing.State(relations=[relation_no_app, relation_with_app]),
+        )
+
+        mock_velero.create_backup.assert_called_once()
+        assert ctx.action_results.get("status") == "success"
+
+
+def test_resolve_backup_spec_unknown_relation(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test _resolve_backup_spec returns None for an unknown relation type."""
+    ctx = testing.Context(VeleroOperatorCharm)
+    state = testing.State()
+    with ctx(ctx.on.start(), state) as mgr:
+        mock_relation = MagicMock()
+        mock_relation.name = "unknown-endpoint"
+        result = mgr.charm._resolve_backup_spec(
+            mock_relation, "test-app", "test-endpoint", "test-model"
+        )
+        assert result is None
+
+
+def test_k8s_backup_target_relation_changed_triggers_reconcile(
+    mock_velero,
+    mock_lightkube_client,
+):
+    """Test that k8s-backup-target relation changed triggers reconcile."""
+    with (
+        patch.object(
+            VeleroOperatorCharm, "storage_relation", new_callable=PropertyMock
+        ) as mock_storage_rel,
+    ):
+        mock_storage_rel.return_value = StorageRelation.S3
+        mock_velero.is_storage_configured.return_value = True
+        mock_velero.is_installed.return_value = True
+        ctx = testing.Context(VeleroOperatorCharm)
+        relation = testing.Relation(
+            endpoint=K8S_BACKUP_TARGET_ENDPOINT,
+            remote_app_name="test-app",
+            remote_app_data=K8S_BACKUP_TARGET_APP_DATA,
+        )
+
+        # Act
+        state_out = ctx.run(
+            ctx.on.relation_changed(relation),
+            testing.State(relations=[relation]),
+        )
+
+        # Assert - charm should reach active status (reconcile ran successfully)
+        assert state_out.unit_status == testing.ActiveStatus(READY_MESSAGE)

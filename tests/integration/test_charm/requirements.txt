@@ -1,2 +1,3 @@
 ops
 pydantic
+charmlibs-interfaces-k8s-backup-target
