@@ -188,10 +188,6 @@ jobs:
         run: juju status
         if: always()
 
-      - name: Get velero-operator workload logs
-        run: kubectl logs --tail 100 -n testing -l app.kubernetes.io/name=velero-operator -c velero-operator
-        if: failure()
-
       - name: Get operator logs
         run: kubectl logs --tail 100 -n testing -l app.kubernetes.io/name=velero-operator -c charm
         if: failure()
