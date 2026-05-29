@@ -10,12 +10,18 @@ providers:
     channel: 1.32-classic/stable
     features:
       local-storage:
+        enabled: true
       load-balancer:
         enabled: true
         l2-mode: true
         cidrs: 10.64.140.43/32
     bootstrap-constraints:
       root-disk: 2G
+
+  lxd:
+    enable: true
+    bootstrap: false
+    channel: latest/stable
 
 host:
   snaps:
