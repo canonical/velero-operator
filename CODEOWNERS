@@ -2,5 +2,4 @@
 # later match takes precedence. Owners will be requested for
 # review when someone opens a pull request.
 *    @canonical/soleng-reviewers
-*    @canonical/data-ai-kubeflow
-*    @canonical/kubeflow
+*    @canonical/mlops
