@@ -1,0 +1,49 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+name: velero-operator
+display-name: Velero Operator
+
+summary: Server Charm for backing up and restoring Kubernetes cluster resources using Velero.
+
+description: |
+  The Velero Charm enables automated backup, restore, and migration of Juju-managed Kubernetes clusters using Velero (https://velero.io).
+  This charm simplifies the deployment and configuration of Velero, integrating seamlessly with cloud storage providers for secure and scalable disaster recovery.
+
+docs: https://discourse.charmhub.io/t/velero-operator-charm-documentation/17482
+issues:
+  - https://github.com/canonical/velero-operator/issues
+source:
+  - https://github.com/canonical/velero-operator
+website:
+  - https://charmhub.io/velero-operator
+  - https://velero.io
+  - https://github.com/canonical/velero-operator
+
+assumes:
+  - k8s-api
+
+requires:
+  s3-credentials:
+    interface: s3
+    limit: 1
+    optional: true
+  azure-storage:
+    interface: azure_storage
+    limit: 1
+  azure-service-principal:
+    interface: azure_service_principal
+    limit: 1
+  gcs-credentials:
+    interface: gcs
+    limit: 1
+    optional: true
+  velero-backups:
+    interface: velero_backup_config
+    optional: true
+
+provides:
+  metrics-endpoint:
+    interface: prometheus_scrape
+  grafana-dashboard:
+    interface: grafana_dashboard
