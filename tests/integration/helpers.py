@@ -26,7 +26,7 @@ from tenacity import (
 )
 
 TIMEOUT = 60 * 10
-CHARM_METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
+CHARM_METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
 TEST_CHARM_METADATA = yaml.safe_load(
     Path("tests/integration/test_charm/charmcraft.yaml").read_text()
 )
