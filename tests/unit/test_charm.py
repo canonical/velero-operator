@@ -1556,3 +1556,23 @@ def test_run_list_backups_action_with_app_and_endpoint(
         assert labels["app"] == "test-app"
         assert labels["endpoint"] == "test-endpoint"
         assert ctx.action_results.get("status") == "success"
+
+
+@pytest.mark.parametrize(
+    "checksum_algorithm",
+    ["MD5", "sha256", ""],
+)
+def test_invalid_checksum_algorithm_config(checksum_algorithm):
+    """Reject unsupported S3 checksum algorithms."""
+    ctx = testing.Context(VeleroOperatorCharm)
+
+    state_out = ctx.run(
+        ctx.on.install(),
+        testing.State(
+            config={"aws-checksum-algorithm": checksum_algorithm},
+        ),
+    )
+
+    assert state_out.unit_status == testing.BlockedStatus(
+        "Invalid configuration: aws-checksum-algorithm"
+    )
