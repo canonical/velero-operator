@@ -4,6 +4,7 @@
 """Configuration for the charm."""
 
 from typing import Literal
+
 from charms.data_platform_libs.v0.data_models import BaseConfigModel
 from pydantic import field_validator
 

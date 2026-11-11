@@ -384,6 +384,7 @@ def test_storage_relation_changed_success(
     assert isinstance(provider, provider_class)
     assert state_out.unit_status == testing.ActiveStatus(READY_MESSAGE)
 
+
 @pytest.mark.parametrize(
     "checksum_option,expected_algorithm",
     [
@@ -425,10 +426,8 @@ def test_s3_checksum_algorithm_config(
     if expected_algorithm is None:
         assert "checksumAlgorithm" not in provider.backup_location_config
     else:
-        assert (
-            provider.backup_location_config["checksumAlgorithm"]
-            == expected_algorithm
-        )
+        assert provider.backup_location_config["checksumAlgorithm"] == expected_algorithm
+
 
 @pytest.mark.parametrize(
     "storage_relation,relation_data",
