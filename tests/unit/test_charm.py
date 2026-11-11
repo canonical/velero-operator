@@ -384,6 +384,51 @@ def test_storage_relation_changed_success(
     assert isinstance(provider, provider_class)
     assert state_out.unit_status == testing.ActiveStatus(READY_MESSAGE)
 
+@pytest.mark.parametrize(
+    "checksum_option,expected_algorithm",
+    [
+        ("auto", None),
+        ("disabled", ""),
+        ("SHA256", "SHA256"),
+    ],
+)
+def test_s3_checksum_algorithm_config(
+    checksum_option, expected_algorithm, mock_velero, mock_lightkube_client
+):
+    """Test that Juju checksum configuration reaches the S3 provider."""
+    mock_velero.is_storage_configured.return_value = False
+
+    ctx = testing.Context(VeleroOperatorCharm)
+    relation = testing.Relation(
+        endpoint=StorageRelation.S3.value,
+        remote_app_data={
+            "region": "us-east-1",
+            "bucket": "test-bucket",
+            "access-key": "test-key",
+            "secret-key": "test-secret",
+        },
+    )
+
+    ctx.run(
+        ctx.on.relation_changed(relation),
+        testing.State(
+            relations=[relation],
+            config={"aws-checksum-algorithm": checksum_option},
+        ),
+    )
+
+    mock_velero.configure_storage_locations.assert_called_once()
+    _, provider = mock_velero.configure_storage_locations.call_args.args
+
+    assert isinstance(provider, S3StorageProvider)
+
+    if expected_algorithm is None:
+        assert "checksumAlgorithm" not in provider.backup_location_config
+    else:
+        assert (
+            provider.backup_location_config["checksumAlgorithm"]
+            == expected_algorithm
+        )
 
 @pytest.mark.parametrize(
     "storage_relation,relation_data",
