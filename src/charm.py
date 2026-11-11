@@ -371,9 +371,17 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
         """
         try:
             if self.storage_relation == StorageRelation.S3:
+                checksum_option = self.config.aws_checksum_algorithm
+                if checksum_option == "auto":
+                    checksum_algorithm = None
+                elif checksum_option == "disabled":
+                    checksum_algorithm = ""
+                else:
+                    checksum_algorithm = checksum_option
                 provider = S3StorageProvider(
                     self.config.velero_aws_plugin_image,
                     self.s3_integrator.get_s3_connection_info(),
+                    checksum_algorithm=checksum_algorithm,
                 )
             elif self.storage_relation == StorageRelation.AZURE:
                 service_principal = self.azure_service_principal.get_azure_service_principal_info()

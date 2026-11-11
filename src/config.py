@@ -3,6 +3,7 @@
 
 """Configuration for the charm."""
 
+from typing import Literal
 from charms.data_platform_libs.v0.data_models import BaseConfigModel
 from pydantic import field_validator
 
@@ -16,6 +17,7 @@ class CharmConfig(BaseConfigModel):
     velero_gcp_plugin_image: str
     use_node_agent: bool
     default_volumes_to_fs_backup: bool
+    aws_checksum_algorithm: Literal["auto", "disabled", "CRC32", "CRC32C", "SHA1", "SHA256"]
 
     @field_validator("*", mode="before")
     @classmethod
