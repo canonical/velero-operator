@@ -24,7 +24,6 @@ from constants import (
     VELERO_SECRET_NAME,
     VELERO_VOLUME_SNAPSHOT_LOCATION_NAME,
 )
-
 from velero import (
     RestoreParams,
     S3StorageProvider,
@@ -34,8 +33,7 @@ from velero import (
     VeleroRestoreStatusError,
     VeleroStatusError,
 )
-
-from k8s_utils import K8sResource
+from velero.core import K8sResource
 
 NAMESPACE = "test-namespace"
 VELERO_IMAGE = "velero/velero:latest"
@@ -779,7 +777,6 @@ def test_add_backup_location_success(mock_run, velero):
     mock_run.assert_called_once_with(
         expected_call_args, check=True, capture_output=True, text=True
     )
-
 
 
 def test_add_backup_location_disabled_checksum(mock_run, velero):
