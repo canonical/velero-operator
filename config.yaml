@@ -36,7 +36,7 @@ options:
   aws-checksum-algorithm:
     description: |
       Checksum algorithm used for S3 backup uploads.
-      Use 'auto' for the plugin default, 'disabled' to
-      disable checksums or CRC32, CRC32C, SHA1, SHA256.
+      Use 'auto' for the AWS plugin default (currently CRC32),
+      'disabled' to disable checksums, or CRC32, CRC32C, SHA1, SHA256.
     type: string
     default: auto

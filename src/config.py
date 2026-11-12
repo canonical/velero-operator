@@ -27,3 +27,12 @@ class CharmConfig(BaseConfigModel):
         if value == "":
             return None
         return value
+
+    @property
+    def velero_checksum_algorithm(self) -> str | None:
+        """Translate the charm setting into Velero's checksum algorithm."""
+        if self.aws_checksum_algorithm == "auto":
+            return None
+        if self.aws_checksum_algorithm == "disabled":
+            return ""
+        return self.aws_checksum_algorithm
