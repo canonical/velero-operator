@@ -33,7 +33,9 @@ from velero import (
     VeleroRestoreStatusError,
     VeleroStatusError,
 )
-from velero.core import K8sResource
+
+# isort: split
+from k8s_utils import K8sResource
 
 NAMESPACE = "test-namespace"
 VELERO_IMAGE = "velero/velero:latest"
