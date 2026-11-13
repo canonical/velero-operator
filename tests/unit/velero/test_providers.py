@@ -187,6 +187,19 @@ def test_s3_storage_provider_success(
     assert provider.volume_snapshot_location_config == volume_snapshot_location_config
 
 
+@pytest.mark.parametrize("checksum_algorithm", ["", "SHA256"])
+def test_s3_storage_provider_checksum_algorithm(checksum_algorithm):
+    """Test S3 backup location checksum configuration."""
+    provider = S3StorageProvider(
+        "s3-plugin-image",
+        s3_data_1,
+        checksum_algorithm=checksum_algorithm,
+    )
+
+    assert provider.backup_location_config["checksumAlgorithm"] == checksum_algorithm
+    assert "checksumAlgorithm" not in provider.volume_snapshot_location_config
+
+
 @pytest.mark.parametrize(
     "s3_data,error_fields",
     [

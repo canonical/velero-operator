@@ -374,6 +374,7 @@ class VeleroOperatorCharm(TypedCharmBase[CharmConfig]):
                 provider = S3StorageProvider(
                     self.config.velero_aws_plugin_image,
                     self.s3_integrator.get_s3_connection_info(),
+                    checksum_algorithm=self.config.velero_checksum_algorithm,
                 )
             elif self.storage_relation == StorageRelation.AZURE:
                 service_principal = self.azure_service_principal.get_azure_service_principal_info()

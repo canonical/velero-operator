@@ -33,8 +33,14 @@ class S3StorageConfig(StorageConfig):
 class S3StorageProvider(VeleroStorageProvider):
     """S3 storage provider for Velero."""
 
-    def __init__(self, plugin_image: str, data: Dict[str, str]) -> None:
+    def __init__(
+        self,
+        plugin_image: str,
+        data: Dict[str, str],
+        checksum_algorithm: Optional[str] = None,
+    ) -> None:
         self._config: S3StorageConfig
+        self._checksum_algorithm = checksum_algorithm
         super().__init__(plugin_image, data, S3StorageConfig)
 
     @property
@@ -70,6 +76,8 @@ class S3StorageProvider(VeleroStorageProvider):
             flags["s3Url"] = self._config.endpoint
         if self._config.s3_uri_style == S3UriStyle.PATH:
             flags["s3ForcePathStyle"] = "true"
+        if self._checksum_algorithm is not None:
+            flags["checksumAlgorithm"] = self._checksum_algorithm
         return flags
 
     @property
