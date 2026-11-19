@@ -24,15 +24,18 @@ from constants import (
     VELERO_SECRET_NAME,
     VELERO_VOLUME_SNAPSHOT_LOCATION_NAME,
 )
-from k8s_utils import K8sResource
 from velero import (
     RestoreParams,
+    S3StorageProvider,
     Velero,
     VeleroBackupStatusError,
     VeleroError,
     VeleroRestoreStatusError,
     VeleroStatusError,
 )
+
+# isort: split
+from k8s_utils import K8sResource
 
 NAMESPACE = "test-namespace"
 VELERO_IMAGE = "velero/velero:latest"
@@ -776,6 +779,28 @@ def test_add_backup_location_success(mock_run, velero):
     mock_run.assert_called_once_with(
         expected_call_args, check=True, capture_output=True, text=True
     )
+
+
+def test_add_backup_location_disabled_checksum(mock_run, velero):
+    """Ensure an empty checksum algorithm reaches the Velero CLI."""
+    provider = S3StorageProvider(
+        "s3-plugin-image",
+        {
+            "region": "us-west-2",
+            "bucket": "test-bucket",
+            "access-key": "test-key",
+            "secret-key": "test-secret",
+        },
+        checksum_algorithm="",
+    )
+
+    velero._add_backup_location(provider)
+
+    mock_run.assert_called_once()
+    command = mock_run.call_args.args[0]
+    config = command[command.index("--config") + 1]
+
+    assert config == "region=us-west-2,checksumAlgorithm="
 
 
 def test_add_backup_location_failed(caplog, mock_run_failing, velero):
